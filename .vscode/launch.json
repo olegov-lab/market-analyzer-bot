@@ -1,0 +1,27 @@
+{
+  "version": "0.2.0",
+  "compounds": [
+    {
+      "name": "Run Backend + Bot",
+      "configurations": ["Backend", "Bot"]
+    }
+  ],
+  "configurations": [
+    {
+      "name": "Backend",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/backend/api.py",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Bot",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/bot/main.py",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ]
+}

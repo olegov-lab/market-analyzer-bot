@@ -1,0 +1,33 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run Tests",
+      "type": "shell",
+      "command": "pytest -q",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Format Code",
+      "type": "shell",
+      "command": "black . && isort .",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Watch Backend",
+      "type": "shell",
+      "command": "watchmedo auto-restart --patterns='*.py' --recursive -- uvicorn backend.api:app --reload",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Watch Bot",
+      "type": "shell",
+      "command": "watchmedo auto-restart --patterns='*.py' --recursive -- python bot/main.py",
+      "group": "build",
+      "problemMatcher": []
+    }
+  ]
+}
