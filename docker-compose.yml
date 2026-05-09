@@ -73,6 +73,7 @@ services:
 
   bot:
     build: .
+    network_mode: host
     command: python -m bot.main
     depends_on:
       postgres:
@@ -81,8 +82,9 @@ services:
         condition: service_healthy
     env_file: .env
     environment:
-      DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/btcbot"
-      REDIS_URL: "redis://redis:6379/0"
+      DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/btcbot"
+      REDIS_URL: "redis://localhost:6379/0"
+      PYTHONUNBUFFERED: "1"
     volumes:
       - model_data:/app/models
     restart: unless-stopped

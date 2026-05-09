@@ -515,3 +515,51 @@ _♻️ <частота обновления>_
 #### 25.4 Замечания
 - **Username:** `Market04ekBot` (не `BTCMonitorBot`, как планировалось) — смена через BotFather потребовала бы новый токен, решено оставить
 - **Inline mode:** включён через @BotFather
+
+### 26. Деплой на сервер и отладка сети (сессия 09.05.2026)
+
+#### 26.1 Проблема
+При деплое на сервер Aeza (Ubuntu 24.04, 1 vCPU, 2GB RAM) бот не отвечал в Telegram. Контейнеры падали в restart loop без видимых логов.
+
+```
+Container bot-bot-1... Exited (137)
+```
+
+#### 26.2 Установка Docker
+На сервере не был установлен Docker. Установлены: `docker-ce`, `docker-ce-cli`, `containerd.io`, `docker-compose-plugin`.
+
+#### 26.3 Настройка `.env`
+В `.env` добавлены `DATABASE_URL` и `REDIS_URL` с правильными именами хостов (`postgres`/`redis` вместо `localhost`).
+
+#### 26.4 Python buffering (Break-Hunter)
+**Проблема:** логи бота не отображались — Python буферизирует stdout.
+**Фикс:** добавлен `PYTHONUNBUFFERED: "1"` в `environment` сервиса `bot` в `docker-compose.yml`.
+
+#### 26.5 Диагностика сети (Live-Debug)
+**Проблема:** в логах появилась ошибка `TelegramNetworkError: Request timeout error` при вызове `bot.me()` (getMe).
+**Причина:** из Docker bridge network не работали исходящие HTTPS-соединения на 443 порт (DNS резолвился, TCP connection timeout).
+
+Проверка из контейнера:
+```
+$ curl -v --connect-timeout 10 https://api.telegram.org
+*   Trying 149.154.166.110:443...
+* Connection timed out after 10002 milliseconds
+```
+
+С хоста при этом `ping api.telegram.org` проходил (45ms). Проблема — в настройках сети Aeza (возможно, iptables/nat для Docker bridge).
+
+#### 26.6 Фикс сети
+**Решение:** сервис `bot` переведён на `network_mode: host` — использует сеть хоста напрямую, минуя Docker bridge.
+- `DATABASE_URL` в сервисе `bot` изменён на `localhost:5432`
+- `REDIS_URL` в сервисе `bot` изменён на `localhost:6379`
+
+#### 26.7 Результат
+- Бот отвечает в Telegram
+- `pending_update_count: 0` — polling работает
+- В логах: `Database connected` + предупреждения анализатора (не хватает данных для 4H-прогноза — нормально)
+- Все 6 контейнеров: postgres, redis, collector, scheduler, api, bot — запущены
+
+#### 26.8 Текущие известные проблемы
+- **Docker bridge network** — исходящие HTTPS не работают (требуется `network_mode: host` для любых сервисов, которым нужен outbound HTTPS)
+- **Glassnode API key** не настроен
+- **LightGBM** — не хватает 48ч истории для ML-прогноза
