@@ -1,21 +1,31 @@
 const API_BASE = window.location.origin;
-let Telegram = window.Telegram.WebApp;
+let Telegram = null;
 let initData = '';
 let userId = null;
 let pollTimers = {};
 let articles = [];
 let lessons = [];
 
-Telegram.ready();
-Telegram.expand();
-initData = Telegram.initData;
+try {
+  Telegram = window.Telegram.WebApp;
+  Telegram.ready();
+  Telegram.expand();
+  initData = Telegram.initData || '';
+} catch (e) {
+  console.warn('Telegram WebApp not available:', e);
+}
 
 async function apiCall(path, options = {}) {
   const headers = { 'X-Telegram-Init-Data': initData, ...options.headers };
   const resp = await fetch(`${API_BASE}${path}`, { ...options, headers });
   if (!resp.ok) {
     const text = await resp.text();
-    throw new Error(text || `HTTP ${resp.status}`);
+    let errMsg = `HTTP ${resp.status}`;
+    try {
+      const errJson = JSON.parse(text);
+      errMsg = errJson.detail || errMsg;
+    } catch (_) {}
+    throw new Error(errMsg);
   }
   return resp.json();
 }
@@ -23,6 +33,18 @@ async function apiCall(path, options = {}) {
 function render(html) {
   const content = document.getElementById('content');
   content.innerHTML = html;
+}
+
+function tgBackButton(action) {
+  if (!Telegram) return;
+  if (action === 'show') Telegram.BackButton.show();
+  else if (action === 'hide') Telegram.BackButton.hide();
+  else if (action === 'onClick') Telegram.BackButton.onClick(arguments[1]);
+}
+
+function tgShowAlert(msg) {
+  if (Telegram) Telegram.showAlert(msg);
+  else alert(msg);
 }
 
 function showLoading() {
@@ -86,7 +108,7 @@ function stopAllPolls() {
 /* ===== Page: Dashboard ===== */
 async function renderDashboard() {
   setActiveNav('price');
-  Telegram.BackButton.hide();
+  tgBackButton('hide');
   showLoading();
   try {
     const data = await apiCall('/miniapp/dashboard');
@@ -163,7 +185,7 @@ async function renderDashboard() {
 /* ===== Page: Predict ===== */
 async function renderPredict() {
   setActiveNav('predict');
-  Telegram.BackButton.hide();
+  tgBackButton('hide');
   showLoading();
   try {
     const pred = await apiCall('/miniapp/predict');
@@ -241,7 +263,7 @@ async function renderPredict() {
 /* ===== Page: News ===== */
 async function renderNews() {
   setActiveNav('news');
-  Telegram.BackButton.hide();
+  tgBackButton('hide');
   showLoading();
   try {
     const data = await apiCall('/miniapp/news');
@@ -293,7 +315,7 @@ async function renderNews() {
 /* ===== Page: Learn ===== */
 async function renderLearnList() {
   setActiveNav('learn');
-  Telegram.BackButton.hide();
+  tgBackButton('hide');
   showLoading();
   try {
     const data = await apiCall('/miniapp/lessons');
@@ -312,8 +334,8 @@ async function renderLearnList() {
 
 async function renderLesson(id) {
   showLoading();
-  Telegram.BackButton.show();
-  Telegram.BackButton.onClick(() => { window.location.hash = '#learn'; });
+  tgBackButton('show');
+  tgBackButton('onClick', () => { window.location.hash = '#learn'; });
 
   try {
     const lesson = await apiCall(`/miniapp/lessons/${id}`);
@@ -337,7 +359,7 @@ async function renderLesson(id) {
 /* ===== Page: Alerts ===== */
 async function renderAlerts() {
   setActiveNav('alerts');
-  Telegram.BackButton.hide();
+  tgBackButton('hide');
   showLoading();
   try {
     const subs = await apiCall('/miniapp/subscriptions');
@@ -371,10 +393,10 @@ async function renderAlerts() {
         const alertType = btn.dataset.type;
         try {
           await apiCall(`/miniapp/subscriptions/${subId}/${alertType}`, { method: 'DELETE' });
-          Telegram.showAlert('Подписка удалена');
+          tgShowAlert('Подписка удалена');
           renderAlerts();
         } catch (e) {
-          Telegram.showAlert('Ошибка: ' + e.message);
+          tgShowAlert('Ошибка: ' + e.message);
         }
       });
     });
@@ -388,10 +410,10 @@ async function renderAlerts() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ alert_type: alertType }),
           });
-          Telegram.showAlert(`Подписка на ${alertType} оформлена`);
+          tgShowAlert(`Подписка на ${alertType} оформлена`);
           renderAlerts();
         } catch (e) {
-          Telegram.showAlert('Ошибка: ' + e.message);
+          tgShowAlert('Ошибка: ' + e.message);
         }
       });
     });
@@ -405,6 +427,11 @@ function routePage() {
   const page = getHashPage();
   const param = getHashParam();
   stopAllPolls();
+
+  if (!initData) {
+    render('<div class="card" style="text-align:center;padding:40px;"><div style="font-size:40px;margin-bottom:16px;">📊</div><div style="font-weight:600;font-size:18px;">BTC Monitor</div><div style="margin-top:8px;color:var(--hint);">Открой это приложение через Telegram Bot<br>👇<br>📊 BTC Dashboard</div></div>');
+    return;
+  }
 
   switch (page) {
     case 'price':
