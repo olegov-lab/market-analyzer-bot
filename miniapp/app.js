@@ -6,37 +6,12 @@ let pollTimers = {};
 let articles = [];
 let lessons = [];
 
-function debug(msg) {
-  const el = document.getElementById('debug');
-  if (!el) return;
-  el.style.display = 'block';
-  el.textContent += new Date().toISOString().slice(11,19) + ' ' + msg + '\n';
-  el.scrollTop = el.scrollHeight;
-  console.log(msg);
-}
-
-function updateLoading(msg) {
-  const el = document.getElementById('loading-text');
-  if (el) el.textContent = msg;
-}
-
-debug('1. Script loaded');
-
-updateLoading('⏳ Инициализация...');
-
 try {
   Telegram = window.Telegram.WebApp;
-  debug('2a. Telegram.WebApp found');
   Telegram.ready();
-  debug('2b. Telegram.ready() OK');
   Telegram.expand();
-  debug('2c. Telegram.expand() OK');
   initData = Telegram.initData || '';
-  debug('2d. initData length=' + initData.length + ' prefix=' + initData.slice(0,20));
 } catch (e) {
-  debug('2x. Telegram.WebApp not available: ' + e.message);
-
-  // Fallback: parse init data from URL hash (for tdesktop etc.)
   try {
     const hash = window.location.hash;
     if (hash && hash.includes('tgWebAppData=')) {
@@ -44,31 +19,20 @@ try {
       const rawData = params.get('tgWebAppData') || '';
       initData = decodeURIComponent(rawData);
       Telegram = { ready: function(){}, expand: function(){}, BackButton: { show: function(){}, hide: function(){}, onClick: function(){} } };
-      debug('2f. Parsed initData from hash, length=' + initData.length);
-      // Clean hash for SPA routing
       if (window.history && window.history.replaceState) {
         window.history.replaceState(null, '', window.location.pathname + window.location.search);
-        debug('2g. Hash cleaned for SPA routing');
       }
     }
-  } catch (e2) {
-    debug('2y. Hash parse error: ' + e2.message);
-  }
-}
-
-if (!initData) {
-  debug('2z. initData is empty after all attempts');
+  } catch (_) {}
 }
 
 async function apiCall(path, options = {}) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15000);
   const headers = { 'X-Telegram-Init-Data': initData, ...options.headers };
-  debug('3a. Fetch ' + path + ' initDataLen=' + initData.length);
   try {
     const resp = await fetch(`${API_BASE}${path}`, { ...options, headers, signal: controller.signal });
     clearTimeout(timeoutId);
-    debug('3b. Response status=' + resp.status);
     if (!resp.ok) {
       const text = await resp.text();
       let errMsg = `HTTP ${resp.status}`;
@@ -76,31 +40,19 @@ async function apiCall(path, options = {}) {
         const errJson = JSON.parse(text);
         errMsg = errJson.detail || errMsg;
       } catch (_) {}
-      debug('3x. Error: ' + errMsg);
       throw new Error(errMsg);
     }
-    const json = await resp.json();
-    debug('3c. JSON OK keys=' + Object.keys(json).join(','));
-    return json;
+    return resp.json();
   } catch (e) {
     clearTimeout(timeoutId);
-    if (e.name === 'AbortError') {
-      debug('3x. Fetch TIMEOUT (15s) for ' + path);
-      throw new Error('Таймаут запроса');
-    }
-    debug('3x. Fetch error: ' + e.message);
+    if (e.name === 'AbortError') throw new Error('Таймаут запроса');
     throw e;
   }
 }
 
 function render(html) {
   const content = document.getElementById('content');
-  if (content) {
-    content.innerHTML = html;
-    debug('4. Rendered ' + html.length + ' chars');
-  } else {
-    debug('4x. content element not found!');
-  }
+  if (content) content.innerHTML = html;
 }
 
 function tgBackButton(action) {
@@ -120,7 +72,6 @@ function showLoading() {
 }
 
 function showError(msg) {
-  debug('5x. Error: ' + msg);
   render('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + msg + '</div></div>');
 }
 
@@ -157,7 +108,6 @@ function getHashParam() {
 
 function startPoll(name, fn, interval) {
   stopPoll(name);
-  debug('6. Start poll ' + name + ' interval=' + interval);
   fn();
   pollTimers[name] = setInterval(fn, interval);
 }
@@ -229,7 +179,6 @@ async function renderDashboard() {
     }
 
     html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;">♻️ Обновление каждые 30с</div>';
-
     render(html);
   } catch (e) {
     showError('Не удалось загрузить данные: ' + e.message);
@@ -445,14 +394,11 @@ function routePage() {
   const page = getHashPage();
   const param = getHashParam();
   stopAllPolls();
-  debug('7. Route page=' + page + ' param=' + param);
 
   if (!initData) {
-    debug('7x. initData empty — showing fallback');
     render('<div class="card" style="text-align:center;padding:40px;"><div style="font-size:40px;margin-bottom:16px;">📊</div><div style="font-weight:600;font-size:18px;">BTC Monitor</div><div style="margin-top:8px;color:var(--hint);">Открой это приложение через Telegram Bot<br>👇<br>📊 BTC Dashboard</div></div>');
     return;
   }
-  debug('7. initData length=' + initData.length);
 
   switch (page) {
     case 'price':
@@ -490,5 +436,4 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-debug('8. Calling routePage()');
 routePage();
