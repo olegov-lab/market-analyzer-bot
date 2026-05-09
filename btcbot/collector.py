@@ -51,6 +51,12 @@ class VolumeTracker:
 
 
 class PriceBuffer:
+    def __init__(self, db: Database, max_size: int = 100, flush_interval: float = 10.0) -> None:
+        self.db = db
+        self.max_size = max_size
+        self.flush_interval = flush_interval
+        self._buf: list[Any] = []
+        self._lock = asyncio.Lock()
 
     async def add(self, record: Any) -> None:
         async with self._lock:

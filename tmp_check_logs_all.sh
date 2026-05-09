@@ -1,0 +1,1 @@
+echo "=== BOT ===" && docker logs bot-bot-1 --tail 5 && echo "=== COLLECTOR ===" && docker logs bot-collector-1 --tail 5 && echo "=== SCHEDULER ===" && docker logs bot-scheduler-1 --tail 5 && echo "=== API ===" && docker logs bot-api-1 --tail 5
