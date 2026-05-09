@@ -248,5 +248,11 @@ body {
 
 /* Common */
 .loading { text-align: center; padding: 40px; color: var(--hint); }
+.spinner {
+  width: 32px; height: 32px; border: 3px solid var(--border);
+  border-top-color: var(--btn); border-radius: 50%;
+  animation: spin 0.8s linear infinite; margin: 0 auto 12px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 .error { text-align: center; padding: 20px; color: var(--red); }
 .section-title { font-size: 13px; font-weight: 600; margin: 14px 0 8px; }
