@@ -9,7 +9,6 @@ lightgbm>=4.6
 loguru>=0.7
 numpy>=2.2
 ollama>=0.6
-onnxruntime>=1.21
 pandas>=2.2
 pandas-ta
 propcache>=0.4
@@ -18,7 +17,6 @@ pydantic-settings>=2.8
 python-dotenv>=1.2
 redis>=5.0
 requests>=2.33
-scikit-learn>=1.6
 starlette>=1.0
 uvicorn>=0.46
 websockets>=14.0

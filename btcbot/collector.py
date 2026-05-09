@@ -25,13 +25,32 @@ BITVIEW_METRICS = {
 }
 
 
+VOLUME_WINDOW = 3600
+
+
+class VolumeTracker:
+    def __init__(self, redis_client: Any, window: int = VOLUME_WINDOW) -> None:
+        self.redis = redis_client
+        self.window = window
+        self._volumes: list[tuple[datetime, float]] = []
+
+    def add(self, volume: float, now: datetime) -> None:
+        cutoff = now - timedelta(seconds=self.window)
+        self._volumes.append((now, volume))
+        self._volumes = [(t, v) for t, v in self._volumes if t > cutoff]
+
+    async def publish_stats(self, now: datetime) -> None:
+        cutoff = now - timedelta(seconds=self.window)
+        recent = [v for t, v in self._volumes if t > cutoff]
+        if not recent:
+            return
+        avg = sum(recent) / len(recent)
+        current_sum = sum(recent[-60:]) if len(recent) >= 60 else sum(recent)
+        await self.redis.set("btc:volume:avg", str(avg))
+        await self.redis.set("btc:volume:current", str(current_sum))
+
+
 class PriceBuffer:
-    def __init__(self, db: Database, max_size: int = 100, flush_interval: float = 10.0) -> None:
-        self.db = db
-        self.max_size = max_size
-        self.flush_interval = flush_interval
-        self._buf: list[Any] = []
-        self._lock = asyncio.Lock()
 
     async def add(self, record: Any) -> None:
         async with self._lock:
@@ -64,6 +83,7 @@ class PriceCollector:
         self._running = False
         self._session: Optional[aiohttp.ClientSession] = None
         self._buffer = PriceBuffer(db)
+        self._volume_tracker = VolumeTracker(redis_client)
 
     async def start(self) -> None:
         self._running = True
@@ -74,6 +94,7 @@ class PriceCollector:
             self._bitview_loop(),
             self._futures_loop(),
             self._buffer.flush_loop(),
+            self._volume_stats_loop(),
         )
 
     async def stop(self) -> None:
@@ -81,12 +102,16 @@ class PriceCollector:
         if self._session:
             await self._session.close()
 
+    async def _volume_stats_loop(self) -> None:
+        while self._running:
+            await asyncio.sleep(60)
+            await self._volume_tracker.publish_stats(datetime.now(timezone.utc))
+
     async def _binance_ws_loop(self) -> None:
         url = f"{self.settings.binance_ws_url}/btcusdt@aggTrade"
         while self._running:
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.ws_connect(url) as ws:
+                async with self._session.ws_connect(url) as ws:
                         logger.info("Binance WebSocket connected")
                         async for msg in ws:
                             if msg.type == aiohttp.WSMsgType.TEXT:
@@ -99,6 +124,7 @@ class PriceCollector:
                                     price=price, volume=volume, source="binance",
                                 )
                                 await self._buffer.add(record)
+                                self._volume_tracker.add(volume, now)
                                 await self.redis.set("btc:price", str(price))
                                 await self.redis.publish(
                                     "btc:price:live",

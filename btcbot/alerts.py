@@ -1,10 +1,12 @@
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from loguru import logger
 
 from btcbot.db import Database
+
+COOLDOWN_MINUTES = 60
 
 
 class AlertManager:
@@ -12,6 +14,21 @@ class AlertManager:
         self.db = db
         self.redis = redis_client
         self.bot = bot
+        self._last_sent: dict[str, datetime] = {}
+
+    def _cooldown_key(self, user_id: int, alert_type: str) -> str:
+        return f"{user_id}:{alert_type}"
+
+    def _is_on_cooldown(self, user_id: int, alert_type: str) -> bool:
+        key = self._cooldown_key(user_id, alert_type)
+        last = self._last_sent.get(key)
+        if last is None:
+            return False
+        return datetime.now(timezone.utc) - last < timedelta(minutes=COOLDOWN_MINUTES)
+
+    def _set_cooldown(self, user_id: int, alert_type: str) -> None:
+        key = self._cooldown_key(user_id, alert_type)
+        self._last_sent[key] = datetime.now(timezone.utc)
 
     async def check_alerts(self) -> None:
         price = await self.db.get_latest_price("BTCUSD")
@@ -80,18 +97,25 @@ class AlertManager:
 
         if not vol_str or not curr_vol_str:
             return
-        avg_vol = float(vol_str)
-        curr_vol = float(curr_vol_str)
+        try:
+            avg_vol = float(vol_str)
+            curr_vol = float(curr_vol_str)
+        except (ValueError, TypeError):
+            return
 
-        if is_weekend or is_night:
-            threshold = 2.0
-        else:
-            threshold = 3.0
+        if avg_vol <= 0:
+            return
+
+        threshold = 2.0 if (is_weekend or is_night) else 3.0
         if curr_vol > threshold * avg_vol:
             msg = f"Volume spike: {curr_vol:.0f} ({threshold}× avg {avg_vol:.0f})"
             await self._send_alert(user["user_id"], "volume_spike", price, msg)
 
     async def _send_alert(self, user_id: int, alert_type: str, price: float, message: str) -> None:
+        if self._is_on_cooldown(user_id, alert_type):
+            logger.debug("Alert {} for user {} on cooldown", alert_type, user_id)
+            return
+        self._set_cooldown(user_id, alert_type)
         try:
             await self.bot.send_message(
                 chat_id=user_id,
