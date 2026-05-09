@@ -28,7 +28,7 @@ menu_kb = ReplyKeyboardMarkup(
     resize_keyboard=True,
 )
 
-WEBAPP_URL = settings.miniapp_url
+WEBAPP_URL = settings.miniapp_url_normalized
 
 bot = Bot(token=settings.telegram_bot_token)
 dp = Dispatcher()

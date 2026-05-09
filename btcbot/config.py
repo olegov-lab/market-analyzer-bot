@@ -12,5 +12,10 @@ class Settings(BaseSettings):
     ollama_host: str = "http://localhost:11434"
     miniapp_url: str = "https://your-server.com/miniapp"
 
+    @property
+    def miniapp_url_normalized(self) -> str:
+        url = self.miniapp_url.rstrip("/")
+        return url + "/"
+
 
 settings = Settings()
