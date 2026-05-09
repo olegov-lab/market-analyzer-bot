@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     binance_ws_url: str = "wss://stream.binance.com:9443/ws"
     coingecko_api_url: str = "https://api.coingecko.com/api/v3"
     ollama_host: str = "http://localhost:11434"
+    miniapp_url: str = "https://your-server.com/miniapp"
 
 
 settings = Settings()

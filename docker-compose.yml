@@ -71,6 +71,7 @@ services:
       REDIS_URL: redis://redis:6379/0
     volumes:
       - model_data:/app/models
+      - ./miniapp:/app/miniapp
     restart: unless-stopped
 
   bot:

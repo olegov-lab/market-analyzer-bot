@@ -621,3 +621,59 @@ $ curl -v --connect-timeout 10 https://api.telegram.org
 - **🟡 P2:** ATR-based spread вместо 2% в RSI fallback
 - **🟢 P3:** Стемминг для новостного сентимента
 - **🟢 P3:** Юнит-тесты (сейчас 0)
+
+Thinking: The user wants me to:
+1. Ask agents how to improve the project and make it more interesting
+2. Ask stylists/designers how to highlight main fields in bot response texts - maybe add colored fields, visual improvements
+Let me check what agents are available for this. From the agents directory, I see:
+- ui_designer.json
+- ux_designer.json
+- content_producer.json
+- smm_specialist.json
+- editor.json
+- writer.json
+- screenwriter.json
+Let me read the relevant agent configs first, then use them for consultation.
+→ Read agents\ui_designer.json
+→ Read agents\ux_designer.json
+→ Read agents\content_producer.json
+Thinking: Let me also read the remaining agents that could be relevant. Then I'll ask all of them for their input via the task tool.
+Agents to ask:
+1. UI Designer - visual styling, colors, formatting
+2. UX Designer - user experience, scenarios
+3. Content Producer - content formats, rubrics
+4. SMM Specialist - engagement, presentation
+5. Editor - text formatting
+6. Business Strategist - project improvement ideas
+Let me use the task tool to consult multiple agents in parallel, feeding them the current bot response format from bot/main.py.
+│ General Task — Consult UI/UX designers
+└ 20 toolcalls · 18m 17s
+│ General Task — Consult content strategists
+└ 9 toolcalls · 1m 35s
+ctrl+x down view subagents
+Thinking: The agents returned great suggestions. Let me now present a summary to the user with the best ideas organized by category. The user asked about:
+1. How to improve the project / make it more interesting
+2. How to highlight main fields in bot responses (styling/design)
+Let me organize the key findings and present them concisely.
+Что сказали агенты
+🎨 UI/UX — Как украсить ответы бота
+Идея	Код
+Прогресс-бар уверенности вместо эмодзи	████░░░░ 85% — высокая
+Моноширинные числа в ` `	`$100 000`, `RSI 45.3`
+Жирные заголовки секций	━━ *Цена* ━━ вместо ── Цена ──
+Spoiler для второстепенного	||детали под катом||
+Статус-строка в начале /btc	🟢 Перепродано — потенциальный отскок
+Новости — заголовок + └ ссылка	Чище, чем длинная ссылка в строке
+🚀 Контент-стратеги — Как сделать проект интереснее
+🔥 P0 (сделать завтра):
+1. /daily — утренний дайджест (цена, RSI, новости, сигнал дня)
+2. Торговый симулятор — виртуальные $10к, /buy /sell, P&L
+3. Flash-аналитика — бот сам пишет при движении >3%
+4. Опросы после /predict — кнопки BUY/HOLD/SELL, статистика голосов
+5. /fear_greed — индекс страха и жадности
+6. /term — термин дня с объяснением
+⏱ P1 (2-3 недели):
+- /weekly — еженедельный обзор / /ask — AI-аналитик через ollama
+- Достижения, Streak (серия дней), уровни пользователей
+- /top — топ криптовалют / /correlation — корреляция с индексами
+Внедрять что-то из этого?

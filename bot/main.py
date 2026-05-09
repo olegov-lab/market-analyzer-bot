@@ -7,7 +7,7 @@ import aiohttp
 import redis.asyncio as aioredis
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import MenuButtonWebApp, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from btcbot.analyzer import Analyzer
@@ -28,6 +28,8 @@ menu_kb = ReplyKeyboardMarkup(
     resize_keyboard=True,
 )
 
+WEBAPP_URL = settings.miniapp_url
+
 bot = Bot(token=settings.telegram_bot_token)
 dp = Dispatcher()
 db = Database(settings.database_url)
@@ -45,6 +47,16 @@ async def on_startup():
     redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
     analyzer = Analyzer(db, redis_client)
 
+    try:
+        await bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(
+                text="📊 BTC Dashboard",
+                web_app=WebAppInfo(url=settings.miniapp_url),
+            )
+        )
+    except Exception as e:
+        print(f"Failed to set menu button: {e}")
+
 
 @dp.shutdown()
 async def on_shutdown():
@@ -59,6 +71,7 @@ async def start(message: types.Message):
     await message.answer(
         "🤖 *BTC Monitor*\n\n"
         "Я слежу за биткоином и помогаю понять, что происходит с ценой.\n\n"
+        "📊 Кнопка слева от ввода — открыть Mini App с полной аналитикой\n\n"
         "💰 `/btc` — цена и индикаторы\n"
         "🔮 `/predict` — прогноз\n"
         "📖 `/learn` — азбука крипты\n"
@@ -294,6 +307,7 @@ async def _estimate_ondays(db: Database) -> float:
 async def help_cmd(message: types.Message):
     await message.answer(
         "🤖 *BTC Monitor* · Помощь\n\n"
+        "📊 **Mini App** — кнопка слева от ввода (`📊 BTC Dashboard`)\n\n"
         "💰 `/btc` — цена и индикаторы\n"
         "🔮 `/predict` — прогноз\n"
         "📖 `/learn` — азбука крипты\n"

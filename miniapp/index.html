@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>BTC Monitor</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <nav id="nav">
+    <button class="nav-btn active" data-page="price">💰 Цена</button>
+    <button class="nav-btn" data-page="predict">🔮 Прогноз</button>
+    <button class="nav-btn" data-page="news">📰 Новости</button>
+    <button class="nav-btn" data-page="learn">📖 Уроки</button>
+    <button class="nav-btn" data-page="alerts">🔔 Подписки</button>
+  </nav>
+  <main id="content">
+    <div class="loading">Загрузка...</div>
+  </main>
+  <div id="footer"></div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
