@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BTC Monitor Test</title><style>
+body{font-family:sans-serif;padding:20px;background:#1a1a2e;color:#eee;}
+h2{color:#e94560;margin-bottom:20px;}
+.step{padding:12px;margin:8px 0;border-radius:8px;background:#16213e;}
+.step.done{background:#1a3a2e;border-left:4px solid #4caf50;}
+.step.fail{background:#3a1a1a;border-left:4px solid #f44336;}
+.step.wait{background:#1a1a3e;border-left:4px solid #ff9800;}
+.step .time{font-size:11px;color:#888;}
+pre{font-size:12px;color:#0f0;background:#111;padding:8px;border-radius:4px;overflow-x:auto;}
+</style></head>
+<body>
+<h2>🔧 BTC Monitor — Test</h2>
+<div id="steps"></div>
+<script>
+const steps = document.getElementById('steps');
+function log(id, label, status, detail='') {
+  const icons = {done:'✅', fail:'❌', wait:'⏳', info:'ℹ️'};
+  steps.innerHTML += `<div class="step ${status}"><span class="time">${new Date().toISOString().slice(11,19)}</span> ${icons[status]||'•'} <b>${id}</b> ${label}<br>${detail ? '<pre>'+detail+'</pre>' : ''}</div>`;
+}
+
+// Step 1: Script loaded
+log('1', 'Script loaded', 'done');
+
+// Step 2: Check Telegram.WebApp
+log('2', 'Checking window.Telegram...', 'wait');
+try {
+  if (window.Telegram && window.Telegram.WebApp) {
+    const tg = window.Telegram.WebApp;
+    const idLen = (tg.initData || '').length;
+    const idPref = (tg.initData || '').slice(0, 30);
+    log('2', 'Telegram.WebApp FOUND', 'done', 'initData length: '+idLen+'\ninitData prefix: '+idPref+'\ncolorScheme: '+tg.colorScheme+'\nplatform: '+tg.platform);
+    tg.ready();
+    tg.expand();
+    log('2b', 'ready()+expand() OK', 'done');
+  } else {
+    log('2', 'Telegram.WebApp NOT available', 'fail', 'window.Telegram keys: '+(window.Telegram ? Object.keys(window.Telegram).join(', ') : 'undefined'));
+  }
+} catch(e) {
+  log('2', 'Telegram init error', 'fail', e.toString());
+}
+
+// Step 3: Test API connectivity
+log('3', 'Testing API /miniapp/dashboard...', 'wait');
+const initData = (window.Telegram && window.Telegram.WebApp) ? (window.Telegram.WebApp.initData || '') : '';
+const API_BASE = window.location.origin;
+const controller = new AbortController();
+setTimeout(() => controller.abort(), 10000);
+
+fetch(API_BASE + '/miniapp/dashboard', {
+  headers: { 'X-Telegram-Init-Data': initData },
+  signal: controller.signal
+}).then(r => {
+  log('3', 'API response received', 'done', 'status: '+r.status+' '+r.statusText+'\ncontent-type: '+(r.headers.get('content-type')||'?'));
+  return r.text().then(t => {
+    if (r.ok) {
+      log('3b', 'API body (first 500 chars)', 'done', t.slice(0, 500));
+    } else {
+      log('3x', 'API error response', 'fail', t.slice(0, 300));
+    }
+  });
+}).catch(e => {
+  log('3', 'API fetch FAILED', 'fail', e.toString());
+});
+
+// Step 4: Test static file serving
+log('4', 'Testing static file /miniapp/styles.css...', 'wait');
+fetch(API_BASE + '/miniapp/styles.css').then(r => {
+  log('4', 'Static file OK', 'done', 'status: '+r.status+' size: '+(r.headers.get('content-length')||'?'));
+}).catch(e => {
+  log('4', 'Static file FAILED', 'fail', e.toString());
+});
+
+// Step 5: Check navigation
+log('5', 'DOM structure check...', 'wait');
+const content = document.getElementById('steps');
+if (content) {
+  log('5', 'DOM check OK', 'done', 'Page rendered at '+window.location.href);
+} else {
+  log('5', 'DOM check FAILED', 'fail', 'steps element not found');
+}
+</script>
+</body>
+</html>
