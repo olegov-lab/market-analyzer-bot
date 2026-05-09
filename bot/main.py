@@ -62,7 +62,7 @@ async def on_startup():
     try:
         await bot.set_chat_menu_button(
             menu_button=MenuButtonWebApp(
-                text="📊 BTC Dashboard",
+                text="📊 BTC",
                 web_app=WebAppInfo(url=settings.miniapp_url),
             )
         )
@@ -329,7 +329,7 @@ async def _estimate_ondays(db: Database) -> float:
 async def help_cmd(message: types.Message):
     await message.answer(
         "🤖 *BTC Monitor* · Помощь\n\n"
-        "📊 **Mini App** — кнопка слева от ввода (`📊 BTC Dashboard`)\n\n"
+        "📊 **Mini App** — кнопка слева от ввода (`📊 BTC`)\n\n"
         "💰 `/btc` — цена и индикаторы\n"
         "🔮 `/predict` — прогноз\n"
         "📖 `/learn` — азбука крипты\n"
