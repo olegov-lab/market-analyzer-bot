@@ -751,3 +751,20 @@ await bot.set_chat_menu_button(
 - Туннель: `https://david-impose-street-obligation.trycloudflare.com`
 - URL автообновляется при рестарте туннеля
 - Для перехода на постоянный URL нужен домен в Cloudflare (нет → остаёмся на trycloudflare с автообновлением)
+
+### 28.9 Блокер: Menu Button URL не обновлялся после рестарта туннеля
+
+**Проблема:** после рестарта cloudflared URL сменился, но кнопка меню продолжала указывать на старый URL.
+
+**Root cause #1:** `docker compose restart` НЕ перечитывает `.env` — использует переменные окружения, установленные при создании контейнера. Фикс: `docker compose up -d` (пересоздаёт контейнер).
+
+**Root cause #2:** `curl setChatMenuButton` через Telegram API возвращал `true`, но не применял изменения — кнопка оставалась `commands`. Точная причина не выяснена (возможен баг API или кэширование).
+
+**Решение:** запуск `set_chat_menu_button()` напрямую внутри контейнера через Python/aiogram — сработало.
+
+**Дополнительно:** wrapper-скрипт исправлен: `docker compose restart` → `docker compose up -d`.
+
+### 28.10 Итоговое состояние
+- Mini App полностью работает на новом URL
+- Кнопка меню обновлена и указывает на `https://david-impose-street-obligation.trycloudflare.com/miniapp/`
+- При рестарте туннеля URL автообновляется (wrapper + `up -d`)
