@@ -34,8 +34,30 @@ try {
   initData = Telegram.initData || '';
   debug('2d. initData length=' + initData.length + ' prefix=' + initData.slice(0,20));
 } catch (e) {
-  debug('2x. Telegram init error: ' + e.message);
-  console.warn('Telegram WebApp not available:', e);
+  debug('2x. Telegram.WebApp not available: ' + e.message);
+
+  // Fallback: parse init data from URL hash (for tdesktop etc.)
+  try {
+    const hash = window.location.hash;
+    if (hash && hash.includes('tgWebAppData=')) {
+      const params = new URLSearchParams(hash.slice(1));
+      const rawData = params.get('tgWebAppData') || '';
+      initData = decodeURIComponent(rawData);
+      Telegram = { ready: function(){}, expand: function(){}, BackButton: { show: function(){}, hide: function(){}, onClick: function(){} } };
+      debug('2f. Parsed initData from hash, length=' + initData.length);
+      // Clean hash for SPA routing
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+        debug('2g. Hash cleaned for SPA routing');
+      }
+    }
+  } catch (e2) {
+    debug('2y. Hash parse error: ' + e2.message);
+  }
+}
+
+if (!initData) {
+  debug('2z. initData is empty after all attempts');
 }
 
 async function apiCall(path, options = {}) {
@@ -122,7 +144,7 @@ function setActiveNav(page) {
 
 function getHashPage() {
   const hash = window.location.hash.slice(1);
-  if (!hash) return 'price';
+  if (!hash || hash.startsWith('tgWebAppData=')) return 'price';
   if (hash.startsWith('learn/')) return 'learn';
   return hash;
 }
