@@ -1,6 +1,7 @@
 import asyncio
 import math
 import os
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -70,6 +71,7 @@ def _apply_rules(value: Optional[float], rules: list) -> int:
 
 class Analyzer:
     _lgb_model: Optional[lgb.Booster] = None
+    _lgb_lock = threading.Lock()
 
     def __init__(self, db: Database, redis_client: Any) -> None:
         self.db = db
@@ -307,22 +309,30 @@ class Analyzer:
         return zones
 
     async def _load_or_train_model(self, symbol: str, candles: pd.DataFrame) -> Optional[lgb.Booster]:
-        if Analyzer._lgb_model is not None:
-            return Analyzer._lgb_model
-
-        if os.path.exists(MODEL_PATH):
-            try:
-                Analyzer._lgb_model = lgb.Booster(model_file=MODEL_PATH)
-                logger.info("Loaded LightGBM model from {}", MODEL_PATH)
+        with Analyzer._lgb_lock:
+            if Analyzer._lgb_model is not None:
                 return Analyzer._lgb_model
-            except Exception as e:
-                logger.warning("Failed to load model: {}, retraining", e)
+
+            if os.path.exists(MODEL_PATH):
+                try:
+                    Analyzer._lgb_model = lgb.Booster(model_file=MODEL_PATH)
+                    logger.info("Loaded LightGBM model from {}", MODEL_PATH)
+                    return Analyzer._lgb_model
+                except Exception as e:
+                    logger.warning("Failed to load model: {}, retraining", e)
 
         logger.info("Training LightGBM model on last {} days of data", TRAIN_DAYS)
         model = await self._train_model(symbol, candles)
         if model:
-            Analyzer._lgb_model = model
+            with Analyzer._lgb_lock:
+                Analyzer._lgb_model = model
         return model
+
+    async def _get_model(self, symbol: str, candles: pd.DataFrame) -> Optional[lgb.Booster]:
+        with Analyzer._lgb_lock:
+            if Analyzer._lgb_model is not None:
+                return Analyzer._lgb_model
+        return await self._load_or_train_model(symbol, candles)
 
     async def _train_model(self, symbol: str, candles: pd.DataFrame) -> Optional[lgb.Booster]:
         try:
@@ -337,7 +347,7 @@ class Analyzer:
                 np.where(future_ret < -0.015, 2, 1)
             )
 
-            valid = features_df.notna().all(axis=1) & targets != -1
+            valid = features_df.notna().all(axis=1) & (targets != -1)
             X = features_df[valid].values.astype(np.float32)
             y = targets[valid].astype(np.int32)
 
@@ -382,7 +392,7 @@ class Analyzer:
         onchain = await self._get_onchain_df(oc_since)
         features_df = self._compute_24_features(candles, onchain)
 
-        model = await self._load_or_train_model(symbol, candles)
+        model = await self._get_model(symbol, candles)
         latest_features = features_df.iloc[-1:].fillna(0)
 
         atr_val = float(candles["close"].astype(float).iloc[-1] * 0.02)
@@ -400,7 +410,8 @@ class Analyzer:
         if model is not None:
             try:
                 feats = latest_features.values.astype(np.float32)
-                probs = model.predict(feats)
+                loop = asyncio.get_running_loop()
+                probs = await loop.run_in_executor(None, model.predict, feats)
                 probs_list = probs[0].tolist()
                 pred_class = int(np.argmax(probs[0]))
                 label_map = {0: "BUY", 1: "HOLD", 2: "SELL"}

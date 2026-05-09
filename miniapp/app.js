@@ -51,8 +51,14 @@ async function apiCall(path, options = {}) {
 }
 
 function render(html) {
-  const content = document.getElementById('content');
-  if (content) content.innerHTML = html;
+  try {
+    const content = document.getElementById('content');
+    if (content) content.innerHTML = html;
+  } catch (e) {
+    console.error('Render failed:', e);
+    const content = document.getElementById('content');
+    if (content) content.innerHTML = '<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">Ошибка отображения</div></div>';
+  }
 }
 
 function tgBackButton(action) {
@@ -278,7 +284,7 @@ async function renderNews() {
     const sentEmoji = { bullish: '🟢', bearish: '🔴', neutral: '🟡' };
     for (const a of articles) {
       const emoji = sentEmoji[a.sentiment] || '🟡';
-      const src = a.source ? ' — ' + a.source : '';
+      const src = a.source ? ' — ' + escapeHtml(a.source) : '';
       html += '<div class="news-item"><div class="news-title">' + emoji + ' ' + escapeHtml(a.title) + '</div><div class="news-meta"><a class="news-link" href="' + escapeHtml(a.url) + '" target="_blank">Читать' + src + '</a></div></div>';
     }
 

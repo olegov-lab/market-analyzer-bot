@@ -3,17 +3,15 @@ import os
 from datetime import datetime, timezone
 from typing import Optional
 
-import aiohttp
 import redis.asyncio as aioredis
-import xml.etree.ElementTree as ET
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel
+from fastapi.responses import FileResponse
 
 from btcbot.analyzer import Analyzer
 from btcbot.config import settings
 from btcbot.db import Database
+from btcbot.news import NEWS_CACHE_TTL, build_sentiment_summary, fetch_news
 from backend.miniapp_auth import verify_telegram_init_data
 
 app = FastAPI(title="Market Analyzer Bot")
@@ -22,9 +20,10 @@ db = Database(settings.database_url)
 redis_client: Optional[aioredis.Redis] = None
 analyzer: Optional[Analyzer] = None
 
+CORS_ORIGIN = settings.miniapp_url_normalized.rstrip("/")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[CORS_ORIGIN],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -33,28 +32,6 @@ app.add_middleware(
 with open("bot/lessons.json", encoding="utf-8") as f:
     LESSONS = json.load(f)
 
-NEWS_CACHE_TTL = 300
-
-BULLISH_KEYWORDS = [
-    "surge", "rally", "gain", "bull", "buy", "high", "growth", "record",
-    "accumulate", "institutional", "etf", "adopt", "upgrade", "partner",
-    "inflow", "break", "hold", "support", "momentum", "optimist",
-    "рост", "бычий", "накопление", "покупк", "рекорд", "приток",
-    "институциональн", "восстановлени", "прорыв", "уверенность",
-]
-
-BEARISH_KEYWORDS = [
-    "loss", "drop", "fall", "crash", "bear", "sell", "low", "decline",
-    "purge", "ban", "hack", "fraud", "regulat", "worry", "fear",
-    "liquidate", "downgrade", "revers", "resist", "panic", "capitul",
-    "падени", "медвежий", "потер", "слив", "страх", "обвал",
-    "ликвидаци", "запрет", "мошенничеств", "регулятор", "паник",
-]
-
-
-class SubscribeRequest(BaseModel):
-    alert_type: str
-
 
 async def _get_user_id(request: Request) -> int:
     init_data = request.headers.get("X-Telegram-Init-Data", "")
@@ -62,17 +39,6 @@ async def _get_user_id(request: Request) -> int:
     if not user:
         raise HTTPException(401, "Invalid init data")
     return user.get("id")
-
-
-def _classify_sentiment(title: str) -> str:
-    lower = title.lower()
-    bull_score = sum(1 for kw in BULLISH_KEYWORDS if kw in lower)
-    bear_score = sum(1 for kw in BEARISH_KEYWORDS if kw in lower)
-    if bull_score > bear_score:
-        return "bullish"
-    elif bear_score > bull_score:
-        return "bearish"
-    return "neutral"
 
 
 @app.on_event("startup")
@@ -129,11 +95,15 @@ async def btc_predict():
 
 
 @app.post("/btc/alert/subscribe")
-async def subscribe(data: SubscribeRequest):
-    user_id = data.alert_type
+async def subscribe(request: Request):
+    user_id = await _get_user_id(request)
+    body = await request.json()
+    alert_type = body.get("alert_type")
+    if not alert_type:
+        raise HTTPException(400, "alert_type required")
     await db.upsert_user(user_id)
-    await db.add_subscription(user_id, "BTCUSD", "15m", [data.alert_type])
-    return {"status": "subscribed", "user_id": user_id}
+    await db.add_subscription(user_id, "BTCUSD", "15m", [alert_type])
+    return {"status": "subscribed", "user_id": user_id, "alert_type": alert_type}
 
 
 # ─── Mini App Endpoints ──────────────────────────────────────────────
@@ -171,58 +141,8 @@ async def miniapp_predict(request: Request):
 
 @app.get("/miniapp/news")
 async def miniapp_news():
-    cached = await redis_client.get("btc:news")
-    if cached:
-        articles = json.loads(cached)
-    else:
-        rss_url = "https://news.google.com/rss/search?q=bitcoin&hl=ru&gl=RU&ceid=RU:ru"
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(rss_url) as resp:
-                    xml_data = await resp.text()
-                    root = ET.fromstring(xml_data)
-                    items = root.findall(".//item")[:10]
-                    articles = []
-                    for item in items:
-                        title_el = item.find("title")
-                        link_el = item.find("link")
-                        source_el = item.find("source")
-                        title = title_el.text if title_el is not None else ""
-                        url = link_el.text if link_el is not None else ""
-                        source = source_el.text if source_el is not None else ""
-                        if not title or not url:
-                            continue
-                        articles.append({"title": title, "source": source, "url": url})
-                        if len(articles) >= 5:
-                            break
-                    for a in articles:
-                        a["sentiment"] = _classify_sentiment(a["title"])
-                    await redis_client.set("btc:news", json.dumps(articles), ex=NEWS_CACHE_TTL)
-        except Exception:
-            articles = []
-
-    bull_count = sum(1 for a in articles if a.get("sentiment") == "bullish")
-    bear_count = sum(1 for a in articles if a.get("sentiment") == "bearish")
-    neutral_count = sum(1 for a in articles if a.get("sentiment") == "neutral")
-    total = len(articles)
-
-    if bull_count > bear_count:
-        mood = "bullish"
-    elif bear_count > bull_count:
-        mood = "bearish"
-    else:
-        mood = "neutral"
-
-    return {
-        "articles": articles,
-        "sentiment": {
-            "bullish": bull_count,
-            "bearish": bear_count,
-            "neutral": neutral_count,
-            "total": total,
-            "mood": mood,
-        },
-    }
+    articles = await fetch_news(redis_client)
+    return build_sentiment_summary(articles)
 
 
 @app.get("/miniapp/lessons")

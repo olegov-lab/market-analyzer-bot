@@ -1,10 +1,7 @@
 import asyncio
 import json
-import math
-import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 
-import aiohttp
 import redis.asyncio as aioredis
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
@@ -14,6 +11,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from btcbot.analyzer import Analyzer
 from btcbot.config import settings
 from btcbot.db import Database
+from btcbot.news import fetch_news, build_market_brain_comment, NEWS_CACHE_TTL
 
 
 def _ts() -> str:
@@ -39,8 +37,6 @@ menu_kb = ReplyKeyboardMarkup(
     ],
     resize_keyboard=True,
 )
-
-WEBAPP_URL = settings.miniapp_url_normalized
 
 bot = Bot(token=settings.telegram_bot_token)
 dp = Dispatcher()
@@ -80,7 +76,7 @@ async def on_shutdown():
 @dp.message(Command(commands=["start"]))
 async def start(message: types.Message):
     await db.upsert_user(message.from_user.id, message.from_user.username)
-    articles = await _fetch_news()
+    articles = await fetch_news(redis_client)
     news_part = ""
     if articles:
         sent_emoji = {"bullish": "🟢", "bearish": "🔴", "neutral": "🟡"}
@@ -478,94 +474,12 @@ async def learn_list(callback: types.CallbackQuery):
     await callback.answer()
 
 
-NEWS_CACHE_TTL = 300
 
-BULLISH_KEYWORDS = [
-    "surge", "rally", "gain", "bull", "buy", "high", "growth", "record",
-    "accumulate", "institutional", "etf", "adopt", "upgrade", "partner",
-    "inflow", "break", "hold", "support", "momentum", "optimist",
-    # русские
-    "рост", "бычий", "накопление", "покупк", "рекорд", "приток",
-    "институциональн", "восстановлени", "прорыв", "уверенность",
-]
-
-BEARISH_KEYWORDS = [
-    "loss", "drop", "fall", "crash", "bear", "sell", "low", "decline",
-    "purge", "ban", "hack", "fraud", "regulat", "worry", "fear",
-    "liquidate", "downgrade", "revers", "resist", "panic", "capitul",
-    # русские
-    "падени", "медвежий", "потер", "слив", "страх", "обвал",
-    "ликвидаци", "запрет", "мошенничеств", "регулятор", "паник",
-]
-
-
-def _classify_sentiment(title: str) -> str:
-    lower = title.lower()
-    bull_score = sum(1 for kw in BULLISH_KEYWORDS if kw in lower)
-    bear_score = sum(1 for kw in BEARISH_KEYWORDS if kw in lower)
-    if bull_score > bear_score:
-        return "bullish"
-    elif bear_score > bull_score:
-        return "bearish"
-    return "neutral"
-
-
-def _build_market_brain_comment(bull_count: int, bear_count: int, total: int) -> str:
-    ratio = bull_count / total if total else 0
-    if ratio >= 0.6:
-        return (
-            "Преобладает позитив — институциональные потоки и накопление "
-            "перевешивают локальные риски. В краткосрочной перспективе — бычий уклон."
-        )
-    elif bear_count >= 0.6:
-        return (
-            "Доминируют негативные заголовки — бегство от риска и "
-            "регуляторное давление. Краткосрочно — медвежий уклон."
-        )
-    else:
-        return (
-            "Смешанный фон — позитивные и негативные сигналы "
-            "уравновешивают друг друга. Рынок в зоне неопределённости."
-        )
-
-
-async def _fetch_news() -> list:
-    cached = await redis_client.get("btc:news")
-    if cached:
-        return json.loads(cached)
-    rss_url = "https://news.google.com/rss/search?q=bitcoin&hl=ru&gl=RU&ceid=RU:ru"
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(rss_url) as resp:
-                if resp.status != 200:
-                    return []
-                xml_data = await resp.text()
-                root = ET.fromstring(xml_data)
-                items = root.findall(".//item")[:10]
-                articles = []
-                for item in items:
-                    title_el = item.find("title")
-                    link_el = item.find("link")
-                    source_el = item.find("source")
-                    title = title_el.text if title_el is not None else ""
-                    url = link_el.text if link_el is not None else ""
-                    source = source_el.text if source_el is not None else ""
-                    if not title or not url:
-                        continue
-                    articles.append({"title": title, "source": source, "url": url})
-                    if len(articles) >= 5:
-                        break
-                for a in articles:
-                    a["sentiment"] = _classify_sentiment(a["title"])
-                await redis_client.set("btc:news", json.dumps(articles), ex=NEWS_CACHE_TTL)
-                return articles
-    except Exception:
-        return []
 
 
 @dp.message(Command(commands=["news"]))
 async def news_cmd(message: types.Message):
-    articles = await _fetch_news()
+    articles = await fetch_news(redis_client)
     if not articles:
         await message.answer("Новостей пока нет", reply_markup=menu_kb)
         return
@@ -574,20 +488,10 @@ async def news_cmd(message: types.Message):
     bear_count = sum(1 for a in articles if a.get("sentiment") == "bearish")
     total = len(articles)
 
-    if bull_count > bear_count:
-        mood = "🟢 бычье"
-    elif bear_count > bull_count:
-        mood = "🔴 медвежье"
-    else:
-        mood = "🟡 нейтральное"
+    mood = "🟢 бычье" if bull_count > bear_count else "🔴 медвежье" if bear_count > bull_count else "🟡 нейтральное"
 
     worry = bear_count / total if total else 0
-    if worry >= 0.6:
-        worry_label = "🔴 высокий"
-    elif worry >= 0.3:
-        worry_label = "🟡 средний"
-    else:
-        worry_label = "🟢 низкий"
+    worry_label = "🔴 высокий" if worry >= 0.6 else "🟡 средний" if worry >= 0.3 else "🟢 низкий"
 
     lines = ["📊 *BTC Monitor* · Пульс", "", _ts(), ""]
     lines.append(f"▸ **Настроение:** {mood}")
@@ -604,7 +508,7 @@ async def news_cmd(message: types.Message):
         lines.append(f"{emoji} [{a['title']}]({a['url']}){src_part}")
 
     lines.append("")
-    lines.append(f"💬 **Аналитик рынка:** {_build_market_brain_comment(bull_count, bear_count, total)}")
+    lines.append(f"💬 **Аналитик рынка:** {build_market_brain_comment(bull_count, bear_count, total)}")
     lines.append("")
     lines.append("♻️ Обновление: новости — 5 мин")
 
