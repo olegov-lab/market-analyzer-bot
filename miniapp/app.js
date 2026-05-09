@@ -152,14 +152,29 @@ async function renderDashboard() {
     if (signal === 'BUY') signalText = 'BUY — oversold';
     else if (signal === 'SELL') signalText = 'SELL — overbought';
 
-    let html = '<div class="card"><div class="card-title">BTC/USD</div><div class="price-large">$' + fmtPrice(p) + '</div></div>';
+    let html = '<div class="hero ' + signalClass + '">';
+    html += '<div class="hero-signal">' + signalEmoji + ' ' + signalText + '</div>';
+    html += '<div class="hero-price">$' + (p ? Number(p).toLocaleString('en-US') : '—') + '</div>';
+    if (ind && ind.rsi != null) {
+      const rsiColor = ind.rsi > 70 ? '🔴' : ind.rsi < 30 ? '🟢' : '⚪';
+      html += '<div class="hero-rsi">RSI(14) ' + rsiColor + ' ' + ind.rsi.toFixed(1) + '</div>';
+    }
+    html += '</div>';
+
+    if (pred) {
+      const confPct = Math.round(pred.confidence * 100);
+      const confColor = confPct >= 70 ? 'high' : confPct >= 40 ? 'med' : 'low';
+      html += '<div class="card"><div class="card-title">Уверенность прогноза</div><div class="conf-bar"><div class="conf-bar-fill ' + confColor + '" style="width:' + confPct + '%"></div></div><div class="row"><span class="label">' + confPct + '%</span><span class="value">' + (confPct >= 70 ? 'высокая' : confPct >= 40 ? 'средняя' : 'низкая') + '</span></div></div>';
+    }
 
     if (ind) {
       html += '<div class="card"><div class="card-title">Технические индикаторы</div>';
       if (ind.rsi != null) {
         const rsiColor = ind.rsi > 70 ? 'down' : ind.rsi < 30 ? 'up' : '';
-        const rsiNote = ind.rsi > 70 ? ' перекупленность' : ind.rsi < 30 ? ' перепроданность' : '';
-        html += '<div class="row"><span class="label">RSI(14)</span><span class="value ' + rsiColor + '">' + ind.rsi.toFixed(1) + rsiNote + '</span></div>';
+        const barLen = 10;
+        const filled = Math.max(0, Math.min(barLen, Math.round(ind.rsi / 100 * barLen)));
+        const bar = '█'.repeat(filled) + '░'.repeat(barLen - filled);
+        html += '<div class="row"><span class="label">RSI(14)</span><span class="value ' + rsiColor + '">' + bar + ' ' + ind.rsi.toFixed(1) + '</span></div>';
       }
       if (ind.bb_lower != null) {
         html += '<div class="row"><span class="label">BB(20,2)</span><span class="value">' + fmtPrice(ind.bb_lower) + ' / ' + fmtPrice(ind.bb_middle) + ' / ' + fmtPrice(ind.bb_upper) + '</span></div>';
@@ -176,12 +191,6 @@ async function renderDashboard() {
         html += '<div class="row"><span class="label">MA</span><span class="value">' + maParts.join(' | ') + '</span></div>';
       }
       html += '</div>';
-    }
-
-    if (pred) {
-      const confPct = Math.round(pred.confidence * 100);
-      const confColor = confPct >= 70 ? 'high' : confPct >= 40 ? 'med' : 'low';
-      html += '<div class="card"><div class="card-title">Сигнал</div><div class="signal ' + signalClass + '">' + signalEmoji + ' ' + signalText + '</div><div class="conf-bar"><div class="conf-bar-fill ' + confColor + '" style="width:' + confPct + '%"></div></div><div class="row"><span class="label">Уверенность</span><span class="value">' + confPct + '%</span></div></div>';
     }
 
     html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;">♻️ Обновление каждые 30с</div>';

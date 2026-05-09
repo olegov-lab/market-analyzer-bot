@@ -101,25 +101,48 @@ body {
 .value.up { color: var(--green); }
 .value.down { color: var(--red); }
 
-/* Signal badge */
-.signal {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  border-radius: 20px;
-  font-weight: 700;
-  font-size: 16px;
+/* Hero section */
+.hero {
+  padding: 24px 16px;
+  border-radius: 16px;
+  text-align: center;
+  margin-bottom: 12px;
+  transition: background 0.3s;
 }
-
-.signal.buy { background: #e8f5e9; color: #2e7d32; }
-.signal.sell { background: #ffebee; color: #c62828; }
-.signal.hold { background: #fff3e0; color: #e65100; }
+.hero.buy {
+  background: linear-gradient(135deg, rgba(0,200,83,.15), rgba(0,200,83,.05));
+  border: 1px solid rgba(0,200,83,.3);
+}
+.hero.sell {
+  background: linear-gradient(135deg, rgba(255,23,68,.15), rgba(255,23,68,.05));
+  border: 1px solid rgba(255,23,68,.3);
+}
+.hero.hold {
+  background: linear-gradient(135deg, rgba(255,152,0,.1), rgba(255,152,0,.05));
+  border: 1px solid rgba(255,152,0,.2);
+}
+.hero-signal {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+}
+.hero-price {
+  font-size: 34px;
+  font-weight: 700;
+  margin: 8px 0;
+  font-variant-numeric: tabular-nums;
+}
+.hero-rsi {
+  font-size: 13px;
+  color: var(--hint);
+  margin-top: 4px;
+}
 
 /* Confidence bar */
 .conf-bar {
-  height: 6px;
-  border-radius: 3px;
+  height: 8px;
+  border-radius: 6px;
   background: var(--border);
   margin: 8px 0;
   overflow: hidden;
@@ -127,13 +150,19 @@ body {
 
 .conf-bar-fill {
   height: 100%;
-  border-radius: 3px;
-  transition: width 0.5s ease;
+  border-radius: 6px;
+  transition: width 0.6s ease;
 }
 
-.conf-bar-fill.high { background: var(--green); }
-.conf-bar-fill.med { background: var(--yellow); }
-.conf-bar-fill.low { background: var(--red); }
+.conf-bar-fill.high {
+  background: linear-gradient(90deg, #00c853, #69f0ae);
+}
+.conf-bar-fill.med {
+  background: linear-gradient(90deg, #ffd600, #ffe082);
+}
+.conf-bar-fill.low {
+  background: linear-gradient(90deg, #ff1744, #ff8a80);
+}
 
 /* Mood */
 .mood-row { display: flex; gap: 12px; margin-top: 8px; }

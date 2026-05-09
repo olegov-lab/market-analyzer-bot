@@ -18,6 +18,14 @@ def _ts() -> str:
     return datetime.now(timezone.utc).strftime("🕐 %-d %B %Y, %H:%M UTC")
 
 
+def _rsi_bar(rsi: float) -> str:
+    bar_len = 10
+    filled = max(0, min(bar_len, int(rsi / 100 * bar_len)))
+    bar = "▓" * filled + "░" * (bar_len - filled)
+    color = "🟢" if rsi < 40 else "🟡" if rsi < 60 else "🔴"
+    return f"{color} {bar} {rsi:.1f}"
+
+
 def _greeting() -> str:
     h = datetime.now(timezone.utc).hour
     if 5 <= h < 12:
@@ -113,20 +121,22 @@ async def btc(message: types.Message):
 
     pred = await analyzer.predict()
 
+    sig_emoji = "🟢" if pred and pred.direction == "BUY" else "🔴" if pred and pred.direction == "SELL" else "⚪"
+    sig_word = "BUY" if pred and pred.direction == "BUY" else "SELL" if pred and pred.direction == "SELL" else "HOLD"
+
     lines = [f"💰 *BTC Monitor* · Цена", "", _ts(), ""]
+    lines.append(f"━━━ {sig_emoji} 𝙎𝙄𝙂𝙉𝘼𝙇: {sig_word} {sig_emoji} ━━━")
     lines.append("")
-    lines.append("── Цена ──")
     lines.append(f"▸ **BTC/USD:** ${price:,.0f}")
 
     if indicators:
         lines.append("")
-        lines.append("── Технические ──")
+        lines.append("▔▔▔▔▔  Технические  ▔▔▔▔▔")
 
-        rsi_val = f"{indicators.rsi:.1f}" if indicators.rsi is not None else "⏳"
-        rsi_zone = ""
         if indicators.rsi is not None:
-            rsi_zone = " (перепроданность)" if indicators.rsi < 30 else " (перекупленность)" if indicators.rsi > 70 else ""
-        lines.append(f"▸ **RSI(14):** {rsi_val}{rsi_zone}")
+            lines.append(f"▸ **RSI(14):** {_rsi_bar(indicators.rsi)}")
+        else:
+            lines.append(f"▸ **RSI(14):** ⏳")
 
         if indicators.bb_lower is not None and indicators.bb_middle is not None and indicators.bb_upper is not None:
             bb_pos = ""
@@ -162,21 +172,11 @@ async def btc(message: types.Message):
             ma_parts.append("**MA200:** ⏳ ~3.5 ч")
         lines.append(f"▸ {' | '.join(ma_parts)}")
 
-        lines.append("")
-        lines.append("── Сигнал ──")
-        if indicators.rsi is not None:
-            if indicators.rsi < 30:
-                lines.append("🟢 BUY — oversold")
-            elif indicators.rsi > 70:
-                lines.append("🔴 SELL — overbought")
-            else:
-                lines.append("⚪ HOLD")
-
     if pred and pred.meta:
         p1w = pred.meta.get("prediction_1w")
         if p1w and isinstance(p1w, dict) and p1w.get("mvrv_z") is not None:
             lines.append("")
-            lines.append("── On-chain ──")
+            lines.append("▔▔▔▔▔  On-chain  ▔▔▔▔▔")
             mvrv = p1w.get("mvrv_z")
             mvrv_int = ""
             if mvrv < 0.5:
