@@ -7,6 +7,9 @@ import redis.asyncio as aioredis
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from btcbot.analyzer import Analyzer
 from btcbot.config import settings
@@ -14,7 +17,10 @@ from btcbot.db import Database
 from btcbot.news import NEWS_CACHE_TTL, build_sentiment_summary, fetch_news
 from backend.miniapp_auth import verify_telegram_init_data
 
+limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="Market Analyzer Bot")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 db = Database(settings.database_url)
 redis_client: Optional[aioredis.Redis] = None
@@ -57,17 +63,20 @@ async def shutdown():
 
 
 @app.get("/")
-def root():
+@limiter.limit("30/minute")
+async def root(request: Request):
     return {"status": "backend running"}
 
 
 @app.get("/health")
-def health():
+@limiter.limit("30/minute")
+async def health(request: Request):
     return {"status": "ok"}
 
 
 @app.get("/btc/price")
-async def btc_price():
+@limiter.limit("30/minute")
+async def btc_price(request: Request):
     price = await db.get_latest_price("BTCUSD")
     if not price:
         raise HTTPException(404, "No price data available")
@@ -79,7 +88,8 @@ async def btc_price():
 
 
 @app.get("/btc/indicators")
-async def btc_indicators():
+@limiter.limit("30/minute")
+async def btc_indicators(request: Request):
     indicators = await analyzer.compute_indicators()
     if not indicators:
         raise HTTPException(503, "Not enough price data to compute indicators")
@@ -87,7 +97,8 @@ async def btc_indicators():
 
 
 @app.get("/btc/predict")
-async def btc_predict():
+@limiter.limit("30/minute")
+async def btc_predict(request: Request):
     pred = await analyzer.predict()
     if not pred:
         raise HTTPException(503, "Cannot generate prediction")
@@ -95,6 +106,7 @@ async def btc_predict():
 
 
 @app.post("/btc/alert/subscribe")
+@limiter.limit("10/minute")
 async def subscribe(request: Request):
     user_id = await _get_user_id(request)
     body = await request.json()
@@ -109,6 +121,7 @@ async def subscribe(request: Request):
 # ─── Mini App Endpoints ──────────────────────────────────────────────
 
 @app.get("/miniapp/dashboard")
+@limiter.limit("30/minute")
 async def miniapp_dashboard(request: Request):
     user_id = await _get_user_id(request)
     price = await db.get_latest_price("BTCUSD")
@@ -131,6 +144,7 @@ async def miniapp_dashboard(request: Request):
 
 
 @app.get("/miniapp/predict")
+@limiter.limit("30/minute")
 async def miniapp_predict(request: Request):
     user_id = await _get_user_id(request)
     pred = await analyzer.predict()
@@ -140,18 +154,21 @@ async def miniapp_predict(request: Request):
 
 
 @app.get("/miniapp/news")
-async def miniapp_news():
+@limiter.limit("20/minute")
+async def miniapp_news(request: Request):
     articles = await fetch_news(redis_client)
     return build_sentiment_summary(articles)
 
 
 @app.get("/miniapp/lessons")
-async def miniapp_lessons():
+@limiter.limit("20/minute")
+async def miniapp_lessons(request: Request):
     return [{"id": l["id"], "title": l["title"]} for l in LESSONS]
 
 
 @app.get("/miniapp/lessons/{lesson_id}")
-async def miniapp_lesson(lesson_id: int):
+@limiter.limit("20/minute")
+async def miniapp_lesson(request: Request, lesson_id: int):
     lesson = next((l for l in LESSONS if l["id"] == lesson_id), None)
     if not lesson:
         raise HTTPException(404, "Lesson not found")
@@ -159,6 +176,7 @@ async def miniapp_lesson(lesson_id: int):
 
 
 @app.get("/miniapp/subscriptions")
+@limiter.limit("20/minute")
 async def miniapp_subscriptions(request: Request):
     user_id = await _get_user_id(request)
     subs = await db.get_user_subscriptions(user_id)
@@ -166,6 +184,7 @@ async def miniapp_subscriptions(request: Request):
 
 
 @app.post("/miniapp/subscriptions")
+@limiter.limit("10/minute")
 async def miniapp_subscribe(request: Request):
     user_id = await _get_user_id(request)
     body = await request.json()
@@ -178,6 +197,7 @@ async def miniapp_subscribe(request: Request):
 
 
 @app.delete("/miniapp/subscriptions/{sub_id}/{alert_type}")
+@limiter.limit("10/minute")
 async def miniapp_unsubscribe(request: Request, sub_id: int, alert_type: str):
     user_id = await _get_user_id(request)
     await db.remove_alert_type(sub_id, alert_type)
@@ -188,7 +208,8 @@ async def miniapp_unsubscribe(request: Request, sub_id: int, alert_type: str):
 
 @app.get("/miniapp")
 @app.get("/miniapp/{full_path:path}")
-async def miniapp_static(full_path: str = ""):
+@limiter.limit("60/minute")
+async def miniapp_static(request: Request, full_path: str = ""):
     base = os.path.join(os.path.dirname(__file__), "..", "miniapp")
     if not full_path:
         file_path = os.path.join(base, "index.html")
