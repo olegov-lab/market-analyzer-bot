@@ -92,7 +92,7 @@ async def start(message: types.Message):
         for a in articles[:3]:
             emoji = sent_emoji.get(a.get("sentiment", ""), "🟡")
             news_lines.append(f"{emoji} {a['title']}")
-        news_part = "\n\n📰 *Последние новости:*\n" + "\n".join(news_lines) + "\n──\n📢 `/news` — все новости"
+        news_part = "\n\n📰 *Последние новости:*\n" + "\n".join(news_lines) + "\n\n── Новости ──\n📢 `/news` — все новости"
     await message.answer(
         f"{_greeting()}! 🤖\n\n"
         "Я *BTC Monitor* — слежу за биткоином и помогаю понять, что происходит с ценой."
@@ -125,13 +125,13 @@ async def btc(message: types.Message):
     sig_word = "BUY" if pred and pred.direction == "BUY" else "SELL" if pred and pred.direction == "SELL" else "HOLD"
 
     lines = [f"💰 *BTC Monitor* · Цена", "", _ts(), ""]
-    lines.append(f"━━━ {sig_emoji} 𝙎𝙄𝙂𝙉𝘼𝙇: {sig_word} {sig_emoji} ━━━")
+    lines.append(f"── {sig_emoji} 𝙎𝙄𝙂𝙉𝘼𝙇: {sig_word} {sig_emoji} ──")
     lines.append("")
     lines.append(f"▸ **BTC/USD:** ${price:,.0f}")
 
     if indicators:
         lines.append("")
-        lines.append("▔▔▔▔▔  Технические  ▔▔▔▔▔")
+        lines.append("── Технические ──")
 
         if indicators.rsi is not None:
             lines.append(f"▸ **RSI(14):** {_rsi_bar(indicators.rsi)}")
@@ -176,7 +176,7 @@ async def btc(message: types.Message):
         p1w = pred.meta.get("prediction_1w")
         if p1w and isinstance(p1w, dict) and p1w.get("mvrv_z") is not None:
             lines.append("")
-            lines.append("▔▔▔▔▔  On-chain  ▔▔▔▔▔")
+            lines.append("── On-chain ──")
             mvrv = p1w.get("mvrv_z")
             mvrv_int = ""
             if mvrv < 0.5:
@@ -201,7 +201,7 @@ async def btc(message: types.Message):
         else:
             lines.append("")
             lines.append("── On-chain ──")
-            lines.append("▸ ⏳ данные появятся после настройки Glassnode API")
+            lines.append("⏳ данные появятся после настройки Glassnode API")
 
     lines.append("")
     lines.append("♻️ Обновление: реальное время")
@@ -273,7 +273,7 @@ async def predict(message: types.Message):
         elif hours >= 0.5:
             lines.append("")
             lines.append("── Неделя ──")
-            lines.append("▸ ⏳ ждём on-chain данные (~24ч)")
+            lines.append("⏳ ждём on-chain данные (~24ч)")
 
         if plong and isinstance(plong, dict):
             long_parts = []
@@ -294,7 +294,7 @@ async def predict(message: types.Message):
     else:
         lines.append("")
         lines.append("── Сегодня ──")
-        lines.append("▸ ⏳ собираем историю для прогноза (~48ч)")
+        lines.append("⏳ собираем историю для прогноза (~48ч)")
         lines.append("")
         lines.append("♻️ пришлю уведомление, когда прогноз будет готов")
 
@@ -351,35 +351,21 @@ async def subscribe(message: types.Message):
     await message.answer(
         "📢 *BTC Monitor* · Подписка\n\n"
         "Бот пришлёт уведомление при срабатывании:\n\n"
-        "▸ **RSI** — перекупленность (>70) / перепроданность (<30)\n"
-        "▸ **MA Cross** — пересечение MA50 и MA200\n"
-        "▸ **Volume Spike** — объём > 3× среднего\n\n"
+        "• **RSI** — перекупленность (>70) / перепроданность (<30)\n"
+        "• **MA Cross** — пересечение MA50 и MA200\n"
+        "• **Volume Spike** — объём > 3× среднего\n\n"
         "Выберите тип:",
         reply_markup=builder.as_markup(),
         parse_mode="Markdown",
     )
-    await message.answer("▸ Используй кнопки ниже", reply_markup=menu_kb)
-
-
-@dp.callback_query(lambda c: c.data.startswith("sub_"))
-async def handle_subscribe(callback: types.CallbackQuery):
-    alert_type = callback.data.replace("sub_", "")
-    user_id = callback.from_user.id
-
-    await db.upsert_user(user_id, callback.from_user.username)
-    await db.add_subscription(user_id, "BTCUSD", "15m", [alert_type])
-
-    await callback.answer(f"Подписка на {alert_type} оформлена")
-    await callback.message.edit_text(
-        f"✅ *BTC Monitor* · Подписка\n\n▸ **{alert_type}** активна", parse_mode="Markdown"
-    )
+    await message.answer("💡 Используй кнопки ниже", reply_markup=menu_kb)
 
 
 @dp.message(Command(commands=["alerts"]))
 async def alerts(message: types.Message):
     subs = await db.get_user_subscriptions(message.from_user.id)
     if not subs:
-        await message.answer("🔔 *BTC Monitor* · Подписки\n\n▸ У вас нет активных подписок", parse_mode="Markdown", reply_markup=menu_kb)
+        await message.answer("🔔 *BTC Monitor* · Подписки\n\n❌ У вас нет активных подписок", parse_mode="Markdown", reply_markup=menu_kb)
         return
 
     builder = InlineKeyboardBuilder()
@@ -391,7 +377,7 @@ async def alerts(message: types.Message):
             )
     builder.adjust(1)
     await message.answer(
-        "🔔 *BTC Monitor* · Подписки\n\n▸ Нажмите ❌ чтобы отписаться:",
+        "🔔 *BTC Monitor* · Подписки\n\n💡 Нажмите ❌ чтобы отписаться:",
         reply_markup=builder.as_markup(),
         parse_mode="Markdown",
     )
@@ -407,7 +393,7 @@ async def handle_delete(callback: types.CallbackQuery):
     else:
         await db.delete_subscription(sub_id)
     await callback.answer("Подписка обновлена")
-    await callback.message.edit_text("✅ *BTC Monitor* · Подписки\n\n▸ Подписка обновлена", parse_mode="Markdown")
+    await callback.message.edit_text("✅ *BTC Monitor* · Подписки\n\n💡 Подписка обновлена", parse_mode="Markdown")
 
 
 @dp.message(Command(commands=["learn"]))
@@ -422,14 +408,14 @@ async def learn_cmd(message: types.Message):
     await message.answer(
         "📖 *BTC Monitor* · Азбука крипты\n\n"
         "10 коротких уроков для начинающих:\n\n"
-        "▸ Как читать индикаторы\n"
-        "▸ On-chain метрики\n"
-        "▸ Анализ объёма\n\n"
+        "• Как читать индикаторы\n"
+        "• On-chain метрики\n"
+        "• Анализ объёма\n\n"
         "Выберите урок:",
         reply_markup=builder.as_markup(),
         parse_mode="Markdown",
     )
-    await message.answer("▸ Используй кнопки ниже", reply_markup=menu_kb)
+    await message.answer("💡 Используй кнопки ниже", reply_markup=menu_kb)
 
 
 @dp.callback_query(lambda c: c.data.startswith("lesson_"))
@@ -464,9 +450,9 @@ async def learn_list(callback: types.CallbackQuery):
     await callback.message.edit_text(
         "📖 *BTC Monitor* · Азбука крипты\n\n"
         "10 коротких уроков для начинающих:\n\n"
-        "▸ Как читать индикаторы\n"
-        "▸ On-chain метрики\n"
-        "▸ Анализ объёма\n\n"
+        "• Как читать индикаторы\n"
+        "• On-chain метрики\n"
+        "• Анализ объёма\n\n"
         "Выберите урок:",
         reply_markup=builder.as_markup(),
         parse_mode="Markdown",

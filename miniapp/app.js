@@ -173,7 +173,7 @@ async function renderDashboard() {
         const rsiColor = ind.rsi > 70 ? 'down' : ind.rsi < 30 ? 'up' : '';
         const barLen = 10;
         const filled = Math.max(0, Math.min(barLen, Math.round(ind.rsi / 100 * barLen)));
-        const bar = '█'.repeat(filled) + '░'.repeat(barLen - filled);
+        const bar = '▓'.repeat(filled) + '░'.repeat(barLen - filled);
         html += '<div class="row"><span class="label">RSI(14)</span><span class="value ' + rsiColor + '">' + bar + ' ' + ind.rsi.toFixed(1) + '</span></div>';
       }
       if (ind.bb_lower != null) {
