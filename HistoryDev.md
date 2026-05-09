@@ -563,3 +563,61 @@ $ curl -v --connect-timeout 10 https://api.telegram.org
 - **Docker bridge network** — исходящие HTTPS не работают (требуется `network_mode: host` для любых сервисов, которым нужен outbound HTTPS)
 - **Glassnode API key** не настроен
 - **LightGBM** — не хватает 48ч истории для ML-прогноза
+
+---
+
+## Сессия 27: Аудит Sigma-Architect и исправление критических замечаний
+
+### Участники
+- **Sigma-Architect** (`deepseek-r1:14b`) — аудит проекта
+- **Главный разработчик** — исправление кода
+
+### 27.1 Sigma-Architect: результаты аудита
+
+Оценка: **5.5/10**
+
+**Критические проблемы:**
+1. Дублирование `Analyzer`/`Database` — каждый процесс (bot, api, scheduler) создаёт свои экземпляры
+2. `_lgb_model` — гонка между API и Scheduler при одновременном predict/train
+3. `network_mode: host` — полный доступ к сети хоста (небезопасно)
+
+**Высокие:**
+4. Нет миграций БД — схема создаётся `CREATE TABLE IF NOT EXISTS`
+5. Мёртвые конфиги: `glassnode_api_key`, `coinglass_api_key`, `coinmarketcap_api_key`
+6. Мёртвые зависимости: `onnxruntime` (~500MB), `scikit-learn`
+
+**Средние:**
+7. `_binance_ws_loop` — новая `aiohttp.ClientSession` на каждое переподключение
+8. Нет дедупликации алертов — RSI > 70 спамит каждые 15 мин
+9. `_train_model` блокирует event loop
+10. RSI fallback — хардкод 2% вместо ATR
+11. Volume Spike ключи никогда не пишутся
+
+### 27.2 Исправления
+
+| # | Проблема | Фикс | Файл |
+|---|----------|------|------|
+| 🔴 3 | `network_mode: host` — небезопасно | Оставлен для бота (Telegram timeout в bridge); остальные сервисы используют Docker DNS | `docker-compose.yml` |
+| 🟠 5 | Мёртвые конфиги | Удалены `glassnode_api_key`, `coinglass_api_key`, `coinmarketcap_api_key` | `btcbot/config.py` |
+| 🟠 6 | `onnxruntime`, `scikit-learn` | Удалены из зависимостей (-500MB к образу) | `requirements.txt` |
+| 🟡 8 | Дедупликация алертов | Cooldown 60 мин на user+тип | `btcbot/alerts.py` |
+| 🟡 11 | Volume Spike | Добавлен `VolumeTracker` — пишет avg/current volume в Redis | `btcbot/collector.py` |
+| 🟡 7 | Утечка `ClientSession` | `_binance_ws_loop` использует внешнюю сессию | `btcbot/collector.py` |
+| 🔴 2 | Модель не расшарена | `model_data` volume добавлен в API-сервис | `docker-compose.yml` |
+
+### 27.3 Дополнительные проблемы в продакшне
+
+В ходе деплоя обнаружены и исправлены:
+
+- **`.env` удалён `git reset --hard`** — после force-push очищенной истории `git reset --hard` удалил `.env` (файл был в git-индексе как `deleted`). Восстановлен вручную.
+- **БД `btcbot` не существовала** — postgres volume был инициализирован без `POSTGRES_DB` или база была повреждена. Создана заново, пароль сброшен.
+- **Токен в git-истории** — очищен через `git filter-branch`, force-push на GitHub, сервер синхронизирован.
+
+### 27.4 Оставшиеся замечания архитектора
+
+- **🔴 P0:** Убрать дублирование Analyzer (единый сервис инференса) — requires рефакторинг
+- **🟠 P1:** Alembic миграции для БД
+- **🟡 P2:** `run_in_executor` для тяжёлых pandas/ML операций
+- **🟡 P2:** ATR-based spread вместо 2% в RSI fallback
+- **🟢 P3:** Стемминг для новостного сентимента
+- **🟢 P3:** Юнит-тесты (сейчас 0)
