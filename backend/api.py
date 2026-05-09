@@ -8,7 +8,7 @@ import redis.asyncio as aioredis
 import xml.etree.ElementTree as ET
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from btcbot.analyzer import Analyzer
@@ -277,5 +277,6 @@ async def miniapp_static(full_path: str = ""):
         if not os.path.isfile(file_path):
             file_path = os.path.join(base, "index.html")
     if os.path.isfile(file_path):
-        return FileResponse(file_path)
+        headers = {"Cache-Control": "no-cache, no-store, must-revalidate"}
+        return FileResponse(file_path, headers=headers)
     raise HTTPException(404, "Not found")
