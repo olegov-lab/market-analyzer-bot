@@ -1,6 +1,7 @@
 import asyncio
 import json
 import math
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 
 import aiohttp
@@ -17,6 +18,17 @@ from btcbot.db import Database
 
 def _ts() -> str:
     return datetime.now(timezone.utc).strftime("🕐 %-d %B %Y, %H:%M UTC")
+
+
+def _greeting() -> str:
+    h = datetime.now(timezone.utc).hour
+    if 5 <= h < 12:
+        return "Доброе утро"
+    elif 12 <= h < 18:
+        return "Добрый день"
+    elif 18 <= h < 23:
+        return "Добрый вечер"
+    return "Доброй ночи"
 
 menu_kb = ReplyKeyboardMarkup(
     keyboard=[
@@ -68,10 +80,20 @@ async def on_shutdown():
 @dp.message(Command(commands=["start"]))
 async def start(message: types.Message):
     await db.upsert_user(message.from_user.id, message.from_user.username)
+    articles = await _fetch_news()
+    news_part = ""
+    if articles:
+        sent_emoji = {"bullish": "🟢", "bearish": "🔴", "neutral": "🟡"}
+        news_lines = []
+        for a in articles[:3]:
+            emoji = sent_emoji.get(a.get("sentiment", ""), "🟡")
+            news_lines.append(f"{emoji} {a['title']}")
+        news_part = "\n\n📰 *Последние новости:*\n" + "\n".join(news_lines) + "\n──\n📢 `/news` — все новости"
     await message.answer(
-        "🤖 *BTC Monitor*\n\n"
-        "Я слежу за биткоином и помогаю понять, что происходит с ценой.\n\n"
-        "📊 Кнопка слева от ввода — открыть Mini App с полной аналитикой\n\n"
+        f"{_greeting()}! 🤖\n\n"
+        "Я *BTC Monitor* — слежу за биткоином и помогаю понять, что происходит с ценой."
+        f"{news_part}\n\n"
+        "📊 Кнопка слева от ввода — Mini App с полной аналитикой\n\n"
         "💰 `/btc` — цена и индикаторы\n"
         "🔮 `/predict` — прогноз\n"
         "📖 `/learn` — азбука крипты\n"
@@ -507,48 +529,43 @@ def _build_market_brain_comment(bull_count: int, bear_count: int, total: int) ->
         )
 
 
-@dp.message(Command(commands=["news"]))
-async def news_cmd(message: types.Message):
+async def _fetch_news() -> list:
     cached = await redis_client.get("btc:news")
     if cached:
-        articles = json.loads(cached)
-    else:
-        import xml.etree.ElementTree as ET
+        return json.loads(cached)
+    rss_url = "https://news.google.com/rss/search?q=bitcoin&hl=ru&gl=RU&ceid=RU:ru"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(rss_url) as resp:
+                if resp.status != 200:
+                    return []
+                xml_data = await resp.text()
+                root = ET.fromstring(xml_data)
+                items = root.findall(".//item")[:10]
+                articles = []
+                for item in items:
+                    title_el = item.find("title")
+                    link_el = item.find("link")
+                    source_el = item.find("source")
+                    title = title_el.text if title_el is not None else ""
+                    url = link_el.text if link_el is not None else ""
+                    source = source_el.text if source_el is not None else ""
+                    if not title or not url:
+                        continue
+                    articles.append({"title": title, "source": source, "url": url})
+                    if len(articles) >= 5:
+                        break
+                for a in articles:
+                    a["sentiment"] = _classify_sentiment(a["title"])
+                await redis_client.set("btc:news", json.dumps(articles), ex=NEWS_CACHE_TTL)
+                return articles
+    except Exception:
+        return []
 
-        rss_url = "https://news.google.com/rss/search?q=bitcoin&hl=ru&gl=RU&ceid=RU:ru"
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(rss_url) as resp:
-                    if resp.status != 200:
-                        await message.answer("Не удалось загрузить новости", reply_markup=menu_kb)
-                        return
-                    xml_data = await resp.text()
-                    root = ET.fromstring(xml_data)
-                    items = root.findall(".//item")[:10]
-                    articles = []
-                    for item in items:
-                        title_el = item.find("title")
-                        link_el = item.find("link")
-                        source_el = item.find("source")
-                        title = title_el.text if title_el is not None else ""
-                        url = link_el.text if link_el is not None else ""
-                        source = source_el.text if source_el is not None else ""
-                        if not title or not url:
-                            continue
-                        articles.append({
-                            "title": title,
-                            "source": source,
-                            "url": url,
-                        })
-                        if len(articles) >= 5:
-                            break
-                    for a in articles:
-                        a["sentiment"] = _classify_sentiment(a["title"])
-                    await redis_client.set("btc:news", json.dumps(articles), ex=NEWS_CACHE_TTL)
-        except Exception:
-            await message.answer("Ошибка при загрузке новостей", reply_markup=menu_kb)
-            return
 
+@dp.message(Command(commands=["news"]))
+async def news_cmd(message: types.Message):
+    articles = await _fetch_news()
     if not articles:
         await message.answer("Новостей пока нет", reply_markup=menu_kb)
         return
