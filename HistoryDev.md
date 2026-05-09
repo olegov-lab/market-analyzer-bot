@@ -676,4 +676,78 @@ Spoiler для второстепенного	||детали под катом||
 - /weekly — еженедельный обзор / /ask — AI-аналитик через ollama
 - Достижения, Streak (серия дней), уровни пользователей
 - /top — топ криптовалют / /correlation — корреляция с индексами
-Внедрять что-то из этого?
+
+---
+
+## Сессия 28: Telegram Mini App (WebView) + Cloudflare Tunnel
+
+### Участники
+- Главный разработчик — диагностика и исправление
+
+### 28.1 Telegram Menu Button — WebApp
+Добавлен `MenuButtonWebApp` в `bot/main.py` — кнопка «📊 BTC Dashboard» слева от поля ввода:
+```python
+await bot.set_chat_menu_button(
+    menu_button=MenuButtonWebApp(
+        text="📊 BTC Dashboard",
+        web_app=WebAppInfo(url=settings.miniapp_url),
+    )
+)
+```
+
+### 28.2 Mini App Frontend
+Создано SPA на Vanilla JS:
+- **`miniapp/index.html`** — shell с 5 навигационными вкладками (Цена, Прогноз, Новости, Уроки, Подписки)
+- **`miniapp/app.js`** — hash-роутер, polling (30с/60с/120с), Telegram.WebApp init с try/catch
+- **`miniapp/styles.css`** — Telegram theme vars, card layout, signal badges, адаптивная мобильная навигация
+
+### 28.3 Mini App API Endpoints
+Добавлены в `backend/api.py`:
+- `GET /miniapp/dashboard` — цена + индикаторы + сигнал
+- `GET /miniapp/predict` — прогноз (4H/1W/long)
+- `GET /miniapp/news` — новости с тональностью (Google News RSS)
+- `GET /miniapp/lessons` / `GET /miniapp/lessons/{id}` — уроки
+- `GET /miniapp/subscriptions` / `POST /miniapp/subscriptions` / `DELETE /miniapp/subscriptions/{sub_id}/{type}` — подписки
+
+### 28.4 Auth — initData HMAC
+- **`backend/miniapp_auth.py`** — `verify_telegram_init_data()`: HMAC-SHA256 с bot token
+- Все API защищены: заголовок `X-Telegram-Init-Data` → 401 если невалиден
+
+### 28.5 Блокер: Скрипты не загружались в WebView
+**Проблема:** Mini App показывал «Загрузка...» без зелёного debug-текста.
+
+**Root cause #1 (критический):** URL `https://.../miniapp` без слеша в конце. Браузер (Telegram WebView) воспринимает `/miniapp` как файл, а не директорию. Относительные пути `app.js?v=...` и `styles.css` резолвятся от корня `/` → 404.
+
+**Root cause #2:** Удалён CDN скрипт `telegram-web-app.js` (из-за ошибочного предположения, что Telegram Desktop инжектит `window.Telegram.WebApp` нативно). На платформе `tdesktop` этого не происходит.
+
+**Root cause #3:** URL hash содержит `#tgWebAppData=...` — SPA роутер воспринимал его как имя страницы.
+
+**Исправления:**
+1. `<base href="/miniapp/">` — относительные пути резолвятся корректно
+2. `settings.miniapp_url_normalized` — URL нормализуется со слешем `/miniapp/`
+3. CDN скрипт возвращён: `<script src="https://telegram.org/js/telegram-web-app.js"></script>`
+4. Добавлен ручной fallback: парсинг `initData` из URL hash (для платформ без Telegram.WebApp)
+5. `getHashPage()` игнорирует `tgWebAppData=`
+6. Hash очищается после извлечения initData: `window.history.replaceState(null, '', pathname)`
+7. 15-секундный timeout на fetch (AbortController)
+8. Cache-busting: `app.js?v=20260510`
+
+### 28.6 Cloudflare Tunnel — Auto URL Update
+**Проблема:** `cloudflared tunnel --url` создаёт временный `*.trycloudflare.com`, который меняется при каждом перезапуске.
+
+**Решение:** wrapper-скрипт `/usr/local/bin/cloudflared-wrapper.sh`:
+- Запускает cloudflared, мониторит stdout
+- При появлении нового URL → обновляет `/bot/.env` → рестартует bot-контейнер
+- systemd: `ExecStart=/usr/local/bin/cloudflared-wrapper.sh`
+- Исправлен CRLF → LF (файл создавался с Windows-переносами)
+
+### 28.7 Диагностика
+Добавлена `test.html` — страница с пошаговым тестом: Telegram.WebApp, API, статика.
+В `app.js` добавлен зелёный debug-блок (удалён по просьбе пользователя после починки).
+
+### 28.8 Текущее состояние
+- Mini App полностью работает (Desktop проверено)
+- Регистрация на Cloudflare выполнена (пользователь)
+- Туннель: `https://david-impose-street-obligation.trycloudflare.com`
+- URL автообновляется при рестарте туннеля
+- Для перехода на постоянный URL нужен домен в Cloudflare (нет → остаёмся на trycloudflare с автообновлением)
