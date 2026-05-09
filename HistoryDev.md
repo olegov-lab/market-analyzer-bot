@@ -777,3 +777,61 @@ await bot.set_chat_menu_button(
 ### 28.12 Кнопка меню сокращена
 - Текст кнопки: `📊 BTC Dashboard` → `📊 BTC` (чтобы не перекрывала строку ввода)
 - Обновлён `/help`
+
+---
+
+## Сессия 29: Аудит Sigma-Architect и массовый фикс P0-P2 (10.05.2026)
+
+### Участники
+- **Sigma-Architect** (`deepseek-r1:14b`) — аудит проекта (оценка: 4.5/10)
+- **Главный разработчик** — исправление кода
+
+### 29.1 Результаты аудита
+
+Оценка: **4.5/10**
+
+**Критические (P0):**
+1. `/btc/alert/subscribe` — `user_id = data.alert_type` (баг) + нет аутентификации
+2. Массовое дублирование кода между `bot/main.py` и `backend/api.py`
+3. LightGBM `_lgb_model` — race condition между predict/train
+4. Приоритет операторов — `valid = ... & targets != -1` (всегда True)
+
+**Высокие (P1):**
+5. CORS `allow_origins=["*"]`
+6. `aiohttp.ClientSession()` создаётся на каждый запрос
+7. LightGBM `predict()` блокирует event loop
+8. Нет миграций БД (Alembic), нет тестов, пароль postgres в git
+
+**Средние (P2):**
+9. Frontend: нет error boundaries, cleanup таймеров, XSS
+10. `ollama` в зависимостях (30MB), не используется
+11. Нет rate limiting на API
+
+### 29.2 Исправления
+
+| # | Проблема | Фикс | Файл |
+|---|----------|------|------|
+| 🔴 P0-1 | `/btc/alert/subscribe` — баг + нет auth | Добавлена `_get_user_id()`, исправлен `user_id`, убран `SubscribeRequest` | `backend/api.py` |
+| 🔴 P0-2 | Дублирование keywords, sentiment, news | Созданы `btcbot/sentiment.py` + `btcbot/news.py`; оба файла используют shared-импорты | `btcbot/sentiment.py` (new), `btcbot/news.py` (new), `backend/api.py`, `bot/main.py` |
+| 🔴 P0-3 | Race condition `_lgb_model` | Добавлен `threading.Lock`, `_get_model()` под блокировкой | `btcbot/analyzer.py` |
+| 🔴 P0-4 | Приоритет `&` перед `!=` | Скобки: `... & (targets != -1)` | `btcbot/analyzer.py` |
+| 🟠 P1-1 | CORS `*` | Сужен до `settings.miniapp_url_normalized` | `backend/api.py` |
+| 🟠 P1-2 | `ClientSession` на каждый запрос | Единая сессия в `btcbot/news.py` через `_get_session()` | `btcbot/news.py` |
+| 🟠 P1-3 | LightGBM predict блокирует event loop | Обёрнут в `loop.run_in_executor()` | `btcbot/analyzer.py` |
+| 🟡 P2-1 | Frontend XSS + error boundary | `render()` обёрнут в try/catch, `a.source` экранирован | `miniapp/app.js` |
+| 🟡 P2-2 | `ollama` в зависимостях | Удалён из `requirements.txt` | `requirements.txt` |
+| 🟡 P2-3 | Rate limiting | Добавлен `slowapi` (30/20/10/60 req/min на эндпоинты) | `backend/api.py`, `requirements.txt` |
+| 🟡 P2-4 | Postgres password в git | Через `.env`: `${POSTGRES_PASSWORD:-postgres}` | `docker-compose.yml` |
+| 🟢 | Нет `.env.example` | Создан | `.env.example` (new) |
+
+### 29.3 Ежедневный дайджест новостей
+- Добавлен фоновый таск `_daily_news()` в `bot/main.py`
+- Отправляет всем активным пользователям новости Bitcoin каждый день в 10:00 UTC
+- Формат: как `/news` с заголовком `☀️ BTC Monitor · Доброе утро!`
+- Rate-limited (0.05s между отправками)
+- Запускается через `asyncio.create_task()` в `main()`
+
+### 29.4 Деплой на Aeza
+- Пересобраны образы `api` и `bot` на сервере
+- `slowapi` установлен в контейнер
+- Все 6 контейнеров запущены, ошибок нет
