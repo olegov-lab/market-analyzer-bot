@@ -7,9 +7,9 @@
   --btn-text: var(--tg-theme-button-text-color, #fff);
   --section-bg: var(--tg-theme-secondary-bg-color, #f4f4f5);
   --border: var(--tg-theme-section-separator-color, #e0e0e0);
-  --green: #4caf50;
-  --red: #f44336;
-  --yellow: #ff9800;
+  --green: #00c853;
+  --red: #ff1744;
+  --yellow: #ffc107;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -20,46 +20,49 @@ body {
   color: var(--text);
   font-size: 14px;
   line-height: 1.5;
-  padding-bottom: 80px;
+  padding-bottom: 64px;
   -webkit-font-smoothing: antialiased;
 }
 
 #app { max-width: 600px; margin: 0 auto; padding: 12px; }
 
-/* Navigation */
-#nav {
+/* Bottom navigation */
+#bottom-nav {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
   display: flex;
-  gap: 4px;
-  margin-bottom: 12px;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  padding-bottom: 4px;
-  position: sticky;
-  top: 0;
   background: var(--bg);
-  z-index: 10;
+  border-top: 1px solid var(--border);
+  z-index: 100;
+  padding: 4px 0 env(safe-area-inset-bottom, 4px);
 }
 
 .nav-btn {
-  flex-shrink: 0;
-  padding: 8px 14px;
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  background: var(--section-bg);
-  color: var(--text);
-  font-size: 13px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 6px 2px;
+  border: none;
+  background: transparent;
+  color: var(--hint);
+  font-size: 9px;
   cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.2s;
+  transition: color 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.nav-btn :first-child {
+  font-size: 20px;
+  line-height: 1.2;
 }
 
 .nav-btn.active {
-  background: var(--btn);
-  color: var(--btn-text);
-  border-color: var(--btn);
+  color: var(--btn);
 }
 
-.nav-btn:active { opacity: 0.7; }
+.nav-btn:active { opacity: 0.5; }
 
 #content { min-height: 200px; }
 
@@ -260,20 +263,6 @@ body {
 }
 
 .sub-btn:active { opacity: 0.7; }
-
-/* Footer */
-#footer {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: var(--bg);
-  border-top: 1px solid var(--border);
-  padding: 8px 12px;
-  font-size: 11px;
-  color: var(--hint);
-  text-align: center;
-}
 
 /* Common */
 .loading { text-align: center; padding: 40px; color: var(--hint); }

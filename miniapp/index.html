@@ -10,20 +10,19 @@
 </head>
 <body>
 <div id="app">
-  <nav id="nav">
-    <button class="nav-btn active" data-page="price">💰 Цена</button>
-    <button class="nav-btn" data-page="predict">🔮 Прогноз</button>
-    <button class="nav-btn" data-page="news">📰 Новости</button>
-    <button class="nav-btn" data-page="learn">📖 Уроки</button>
-    <button class="nav-btn" data-page="alerts">🔔 Подписки</button>
-  </nav>
   <main id="content">
     <div class="loading" id="loading-screen">
       <div class="spinner"></div>
       <p id="loading-text">Загрузка...</p>
     </div>
   </main>
-  <div id="footer"></div>
+  <nav id="bottom-nav">
+    <button class="nav-btn active" data-page="price">💰<span>Цена</span></button>
+    <button class="nav-btn" data-page="predict">🔮<span>Прогноз</span></button>
+    <button class="nav-btn" data-page="news">📰<span>Новости</span></button>
+    <button class="nav-btn" data-page="learn">📖<span>Уроки</span></button>
+    <button class="nav-btn" data-page="alerts">🔔<span>Подписки</span></button>
+  </nav>
 </div>
 <script src="app.js?v=20260510"></script>
 </body>
