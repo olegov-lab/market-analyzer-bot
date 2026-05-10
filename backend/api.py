@@ -22,7 +22,7 @@ from btcbot.lessons import LESSONS
 from btcbot.news import NEWS_CACHE_TTL, build_sentiment_summary, fetch_news
 from btcbot.utils import safe_gather
 from backend.miniapp_auth import verify_telegram_init_data
-from backend.agents import ask_agent, list_agents
+from backend.agents import _get_client, ask_agent, list_agents
 
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="Market Analyzer Bot")
@@ -366,6 +366,54 @@ async def miniapp_volatility(request: Request):
     if not vol:
         raise HTTPException(503, "Cannot compute volatility data")
     return vol.model_dump()
+
+
+@app.get("/miniapp/news/timothy")
+@limiter.limit("10/minute")
+async def miniapp_news_timothy(request: Request):
+    user_id = await _get_user_id(request)
+    cache_key = "news:timothy"
+    if redis_client:
+        cached = await redis_client.get(cache_key)
+        if cached:
+            return json.loads(cached)
+
+    system_prompt = (
+        "You are Timothy Peterson, a renowned Bitcoin analyst and author of the paper "
+        "'Metcalfe's Law as a Model for Bitcoin's Value'. You are known for the Lowest Price "
+        "Forward (LPF) indicator and modeling BTC price using network effects. "
+        "Your analysis style: data-driven, quantitative, skeptical of hype, focused on long-term "
+        "trends, Metcalfe's Law, hash rate, and adoption curves. Answer in Russian, "
+        "be concise (300-400 words). Provide a current Bitcoin market analysis in your signature style — "
+        "include perspective on valuation vs Metcalfe's Law, key support/resistance levels, "
+        "and a short-term outlook."
+    )
+    prompt = (
+        "Give a brief Bitcoin market analysis in your signature Timothy Peterson style. "
+        "Include your view on current valuation relative to Metcalfe's Law, "
+        "key support/resistance levels, and near-term outlook. "
+        "Write in Russian, 300-400 words, factual with numbers where relevant."
+    )
+    try:
+        client = _get_client()
+        resp = await client.chat.completions.create(
+            model="deepseek-v4-pro",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.7,
+            max_tokens=2048,
+        )
+        text = resp.choices[0].message.content or ""
+        result = {"text": text, "source": "Timothy Peterson via AI"}
+    except Exception as e:
+        logger.error(f"Timothy news agent error: {e}")
+        result = {"text": f"Не удалось получить анализ. Попробуйте позже.", "source": "error"}
+
+    if redis_client:
+        await redis_client.setex(cache_key, 3600, json.dumps(result, ensure_ascii=False))
+    return result
 
 
 # ─── Static files for Mini App ─────────────────────────────────────

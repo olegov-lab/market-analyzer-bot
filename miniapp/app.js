@@ -890,9 +890,20 @@ function renderNewsPage(sub) {
     <div id="sub-content"></div>
   `);
   if (sub === 'timothy') {
-    renderSub('<div class="card"><p style="color:var(--hint);">⏳ Источник настраивается через OpenCode агента...</p></div>');
+    renderTimothyNews();
   } else {
     startPoll('news', renderNews, 120000);
+  }
+}
+
+async function renderTimothyNews() {
+  renderSub('<div class="card"><div class="spinner"></div><p style="color:var(--hint);">Загрузка анализа Timothy Peterson...</p></div>');
+  try {
+    const data = await apiCall('/miniapp/news/timothy');
+    const text = data.text || 'Нет данных.';
+    renderSub('<div class="card"><div class="card-title">🐦 Timothy Peterson</div><div style="white-space:pre-wrap;line-height:1.7;">' + escapeHtml(text) + '</div><div style="margin-top:12px;font-size:11px;color:var(--hint);">♻️ Кеш: 1 час</div></div>');
+  } catch (e) {
+    renderSub('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + escapeHtml(e.message) + '</div></div>');
   }
 }
 
