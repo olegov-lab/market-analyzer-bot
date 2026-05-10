@@ -396,6 +396,15 @@ async def alerts(message: types.Message):
     )
 
 
+@dp.callback_query(lambda c: c.data.startswith("sub_"))
+async def handle_subscribe(callback: types.CallbackQuery):
+    alert_type = callback.data.split("_", 1)[1]
+    await db.upsert_user(callback.from_user.id, callback.from_user.username)
+    await db.add_subscription(callback.from_user.id, "BTCUSD", "15m", [alert_type])
+    await callback.answer("Подписка оформлена!")
+    await callback.message.edit_text(f"✅ *BTC Monitor* · Подписка\n\n💡 Подписка на *{alert_type}* оформлена", parse_mode="Markdown")
+
+
 @dp.callback_query(lambda c: c.data.startswith("del_"))
 async def handle_delete(callback: types.CallbackQuery):
     parts = callback.data.split("_", 2)
