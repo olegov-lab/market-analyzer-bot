@@ -264,6 +264,22 @@ body {
 
 .sub-btn:active { opacity: 0.7; }
 
+/* Skeleton */
+@keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+.skeleton { background: linear-gradient(90deg, var(--section-bg) 25%, var(--border) 50%, var(--section-bg) 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 12px; margin-bottom: 10px; }
+.skeleton-line { height: 14px; margin-bottom: 8px; border-radius: 4px; }
+.skeleton-block { height: 80px; }
+.skeleton-hero { height: 160px; }
+
+/* Glow */
+.hero.buy { box-shadow: 0 0 20px rgba(0,200,83,0.15); }
+.hero.sell { box-shadow: 0 0 20px rgba(255,23,68,0.15); }
+.hero.hold { box-shadow: 0 0 20px rgba(255,152,0,0.1); }
+
+/* Fade-in */
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.fade-in { animation: fadeIn 0.25s ease-out; }
+
 /* Common */
 .loading { text-align: center; padding: 40px; color: var(--hint); }
 .spinner {

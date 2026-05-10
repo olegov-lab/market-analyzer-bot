@@ -77,6 +77,15 @@ class Analyzer:
         self.db = db
         self.redis = redis_client
 
+    async def warmup_cache(self):
+        await asyncio.sleep(1)
+        try:
+            await self.compute_indicators()
+            await self.predict()
+            logger.info("Cache warmed up")
+        except Exception as e:
+            logger.warning("Warmup incomplete: {}", e)
+
     async def compute_indicators(self, symbol: str = "BTCUSD") -> Optional[Any]:
         cache_key = f"indicators:{symbol}"
         cached = await self.redis.get(cache_key)

@@ -1,5 +1,4 @@
 import asyncio
-import json
 import os
 from datetime import datetime, timezone
 from typing import Optional
@@ -16,6 +15,7 @@ from slowapi.util import get_remote_address
 from btcbot.analyzer import Analyzer
 from btcbot.config import settings
 from btcbot.db import Database
+from btcbot.lessons import LESSONS
 from btcbot.news import NEWS_CACHE_TTL, build_sentiment_summary, fetch_news
 from backend.miniapp_auth import verify_telegram_init_data
 from backend.agents import ask_agent, list_agents
@@ -38,10 +38,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-with open("bot/lessons.json", encoding="utf-8") as f:
-    LESSONS = json.load(f)
-
-
 async def _get_user_id(request: Request) -> int:
     init_data = request.headers.get("X-Telegram-Init-Data", "")
     user = verify_telegram_init_data(init_data, settings.telegram_bot_token)
@@ -56,17 +52,7 @@ async def startup():
     await db.connect()
     redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
     analyzer = Analyzer(db, redis_client)
-    asyncio.create_task(_warmup_cache())
-
-
-async def _warmup_cache():
-    await asyncio.sleep(1)
-    try:
-        _ = await analyzer.compute_indicators()
-        _ = await analyzer.predict()
-        logger.info("Backend cache warmed up")
-    except Exception as e:
-        logger.warning("Backend warmup incomplete: {}", e)
+    asyncio.create_task(analyzer.warmup_cache())
 
 
 @app.on_event("shutdown")

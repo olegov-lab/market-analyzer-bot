@@ -53,7 +53,12 @@ async function apiCall(path, options = {}) {
 function render(html) {
   try {
     const content = document.getElementById('content');
-    if (content) content.innerHTML = html;
+    if (content) {
+      content.classList.remove('fade-in');
+      void content.offsetWidth;
+      content.innerHTML = html;
+      content.classList.add('fade-in');
+    }
   } catch (e) {
     console.error('Render failed:', e);
     const content = document.getElementById('content');
@@ -81,7 +86,12 @@ function showError(msg) {
   render('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + msg + '</div></div>');
 }
 
+function haptic(style) {
+  try { Telegram.WebApp.HapticFeedback.impactOccurred(style || 'light'); } catch(e) {}
+}
+
 function navigate(page) {
+  haptic('light');
   if (page.startsWith('lesson_')) {
     window.location.hash = '#learn/' + page.split('_')[1];
     return;
@@ -132,7 +142,7 @@ function stopAllPolls() {
 async function renderDashboard() {
   setActiveNav('price');
   tgBackButton('hide');
-  showLoading();
+  render('<div class="skeleton skeleton-hero"></div><div class="skeleton skeleton-block"></div><div class="skeleton skeleton-block"></div>');
   try {
     const data = await apiCall('/miniapp/dashboard');
     const p = data.price;
@@ -143,6 +153,11 @@ async function renderDashboard() {
     let signalClass = 'hold';
     if (signal === 'BUY') signalClass = 'buy';
     else if (signal === 'SELL') signalClass = 'sell';
+
+    try {
+      const colors = { buy: '#00c853', sell: '#ff1744', hold: '#ff9800' };
+      Telegram.WebApp.setHeaderColor(colors[signalClass] || '#000');
+    } catch(e) {}
 
     let signalEmoji = '⚪';
     if (signal === 'BUY') signalEmoji = '🟢';
@@ -170,11 +185,8 @@ async function renderDashboard() {
     if (ind) {
       html += '<div class="card"><div class="card-title">Технические индикаторы</div>';
       if (ind.rsi != null) {
-        const rsiColor = ind.rsi > 70 ? 'down' : ind.rsi < 30 ? 'up' : '';
-        const barLen = 10;
-        const filled = Math.max(0, Math.min(barLen, Math.round(ind.rsi / 100 * barLen)));
-        const bar = '▓'.repeat(filled) + '░'.repeat(barLen - filled);
-        html += '<div class="row"><span class="label">RSI(14)</span><span class="value ' + rsiColor + '">' + bar + ' ' + ind.rsi.toFixed(1) + '</span></div>';
+        const rsiFillColor = ind.rsi > 70 ? '#ff1744' : ind.rsi < 30 ? '#00c853' : '#ffc107';
+        html += '<div class="row"><span class="label">RSI(14)</span><span class="value"><div class="conf-bar" style="width:80px;display:inline-block;vertical-align:middle;"><div class="conf-bar-fill" style="width:' + ind.rsi.toFixed(0) + '%;background:' + rsiFillColor + '"></div></div> ' + ind.rsi.toFixed(1) + '</span></div>';
       }
       if (ind.bb_lower != null) {
         html += '<div class="row"><span class="label">BB(20,2)</span><span class="value">' + fmtPrice(ind.bb_lower) + ' / ' + fmtPrice(ind.bb_middle) + ' / ' + fmtPrice(ind.bb_upper) + '</span></div>';
@@ -372,6 +384,7 @@ async function renderAlerts() {
 
     document.querySelectorAll('.btn-unsub').forEach(btn => {
       btn.addEventListener('click', async () => {
+        haptic('light');
         const subId = btn.dataset.subId;
         const alertType = btn.dataset.type;
         try {
@@ -386,6 +399,7 @@ async function renderAlerts() {
 
     document.querySelectorAll('.sub-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
+        haptic('light');
         const alertType = btn.dataset.alertType;
         try {
           await apiCall('/miniapp/subscriptions', {
@@ -414,6 +428,13 @@ function routePage() {
     render('<div class="card" style="text-align:center;padding:40px;"><div style="font-size:40px;margin-bottom:16px;">📊</div><div style="font-weight:600;font-size:18px;">BTC Monitor</div><div style="margin-top:8px;color:var(--hint);">Открой это приложение через Telegram Bot<br>👇<br>📊 BTC Dashboard</div></div>');
     return;
   }
+
+  let startY = 0;
+  document.addEventListener('touchstart', e => { startY = e.touches[0].clientY; });
+  document.addEventListener('touchend', e => {
+    const dy = startY - e.changedTouches[0].clientY;
+    if (dy < -80 && window.scrollY <= 0 && getHashPage() === 'price') { renderDashboard(); haptic('medium'); }
+  });
 
   switch (page) {
     case 'price':
