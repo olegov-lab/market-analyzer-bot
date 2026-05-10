@@ -406,7 +406,7 @@ class Database:
                     return []
                 rows = await conn.fetch("""
                     SELECT
-                        time_bucket($3::text, bucket) AS bucket,
+                        time_bucket($3::interval, bucket) AS bucket,
                         FIRST(open, bucket) AS open,
                         MAX(high) AS high,
                         MIN(low) AS low,
