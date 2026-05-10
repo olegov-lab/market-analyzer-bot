@@ -126,15 +126,15 @@ function setActiveNav(page) {
 
 function parseHash() {
   let h = window.location.hash.slice(1);
-  if (!h || h.startsWith('tgWebAppData=')) return { page: 'indicators', sub: 'price', param: null };
+  if (!h || h.startsWith('tgWebAppData=')) return { page: 'indicators', sub: 'chart', param: null };
   const parts = h.split('/');
   if (parts[0] === 'indicators' || parts[0] === '' || !['chat','miniapp','news'].includes(parts[0])) {
-    return { page: 'indicators', sub: parts[1] || 'price', param: parts[2] || null };
+    return { page: 'indicators', sub: parts[1] || 'chart', param: parts[2] || null };
   }
   if (parts[0] === 'chat') return { page: 'chat', sub: null, param: null };
   if (parts[0] === 'miniapp') return { page: 'miniapp', sub: parts[1] || 'lessons', param: parts[2] || null };
   if (parts[0] === 'news') return { page: 'news', sub: parts[1] || 'general', param: null };
-  return { page: 'indicators', sub: 'price', param: null };
+  return { page: 'indicators', sub: 'chart', param: null };
 }
 
 function startPoll(name, fn, interval) {
@@ -590,11 +590,7 @@ function destroyChart() {
 
 async function renderChart() {
   tgBackButton('hide');
-
-  const chartDiv = document.getElementById('indicators-chart');
-  if (!chartDiv) return;
-
-  chartDiv.innerHTML = `
+  renderSub(`
     <div class="chart-header">
       <div class="chart-header-main">
         <div class="chart-price" id="chart-price">—</div>
@@ -619,7 +615,7 @@ async function renderChart() {
       <div class="loading" style="padding:20px;"><div class="spinner"></div></div>
     </div>
     <div class="chart-info-bar" id="chart-info-bar"></div>
-  `;
+  `);
 
   document.querySelectorAll('[data-tf]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -850,18 +846,18 @@ function fmtChartVolume(v) {
 function renderIndicatorsPage(sub) {
   tgBackButton('hide');
   render(`
-    <div id="indicators-chart"></div>
     <div class="sub-tabs">
+      <button class="sub-tab${sub === 'chart' ? ' active' : ''}" data-sub="chart" onclick="navigate('indicators','chart')">📊 График</button>
       <button class="sub-tab${sub === 'price' ? ' active' : ''}" data-sub="price" onclick="navigate('indicators','price')">💰 Цена</button>
       <button class="sub-tab${sub === 'predict' ? ' active' : ''}" data-sub="predict" onclick="navigate('indicators','predict')">🔮 Прогноз</button>
       <button class="sub-tab${sub === 'alerts' ? ' active' : ''}" data-sub="alerts" onclick="navigate('indicators','alerts')">🔔 Подписки</button>
     </div>
     <div id="sub-content"></div>
   `);
-  if (sub === 'predict') startPoll('indicators_predict', renderPredict, 60000);
+  if (sub === 'chart') renderChart();
+  else if (sub === 'predict') startPoll('indicators_predict', renderPredict, 60000);
   else if (sub === 'alerts') renderAlerts();
   else startPoll('indicators_price', renderDashboard, 30000);
-  setTimeout(() => renderChart(), 50);
 }
 
 // ─── Mini App Page ──────────────────────────────────────────────────
