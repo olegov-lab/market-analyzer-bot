@@ -1512,4 +1512,54 @@ From https://github.com/olegov-lab/market-analyzer-bot
  Image bot-api Building
 #1 [internal] load local bake definitions
 #1 reading from stdin 440B done
+#1 DONE 0.0s
 …
+
+## Сессия 30: Оптимизация производительности и Go-агенты
+
+### Участники
+- **Rapid-Dev** — анализ узких мест, рефакторинг analyzer.py/db.py
+- **Sigma-Architect** — аудит и рекомендации по архитектуре
+
+### 1. Upgrade agents: Ollama → OpenCode Go модели
+- Удалён `ollama_host`, добавлены `opencode_go_api_key` + `opencode_go_endpoint`
+- Все 23 агента переведены на Go модели: DeepSeek V4 Pro (9), GLM-5.1 (11), Kimi K2.6 (3)
+- Добавлен `/agents` и `/agents/{name}` API endpoint с OpenAI-совместимым клиентом
+- **Файлы:** `backend/agents.py`, `btcbot/config.py`
+
+### 2. Технический долг (P0-P2)
+- **P2:** ATR-based spread вместо 2% в RSI fallback
+- **P3:** Стемминг-сентимент для новостей (RU/EN)
+- **P1:** Alembic миграции для управления схемой БД
+- `docker-entrypoint.py` — авто-прогон миграций при старте
+- **Файлы:** `scripts/migrate.py`, `alembic.ini`, `migrations/`, `docker-entrypoint.py`
+
+### 3. Redis-кеш для индикаторов и прогнозов
+- `predict()` — кеш на 5 минут (ключ `prediction:BTCUSD`)
+- `compute_indicators()` — кеш на 30 секунд (ключ `indicators:BTCUSD`)
+- Первый запрос после деплоя — прогрев кеша на старте (`_warmup_cache`)
+- **Файлы:** `btcbot/analyzer.py`, `backend/api.py`, `bot/main.py`
+
+### 4. Перенос агрегации в БД (TimescaleDB)
+- `get_1m_candles_since` — чтение из `candles_1m` вместо raw `prices`
+- `get_4h_candles_since` — `time_bucket('4 hours')` в SQL, вместо pandas resample
+- `get_daily_candles_since` — `time_bucket('1 day')` для долгосрочных расчётов
+- Retention policy: 7 → 180 дней
+- **Эффект:** ~240x меньше данных из БД, ~3x быстрее predict
+
+### 5. Параллелизация predict()
+- `_predict_4h`, `_predict_1w`, `_predict_long` запускаются через `asyncio.gather`
+- `/miniapp/dashboard` — параллельные запросы всех данных
+- Long-term: 1500 daily свечей вместо 4 лет 1-min
+
+### 6. Исправления багов
+- Добавлен `handle_subscribe` callback для кнопок подписки (`sub_rsi`, `sub_ma_cross`, `sub_volume_spike`)
+- Починен `pg_hba.conf` для password auth (scram-sha-256 → ALTER USER)
+
+### Коммиты
+```
+824fc30 Upgrade agents to Go models + tech debt fixes
+d0b371b Add Redis caching for predictions (5min) and indicators (30s)
+531dcbe Optimize project performance: DB aggregation, asyncio.gather, daily candles, cache warmup, retention 180d
+829223f Fix subscribe callback handler missing in bot
+```
