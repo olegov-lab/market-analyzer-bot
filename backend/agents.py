@@ -76,7 +76,7 @@ async def ask_agent(agent_name: str, prompt: str, temperature: Optional[float] =
     if not agent:
         return None
 
-    model = AGENT_MODEL
+    model = _resolve_model(agent.get("model", ""))
     system = build_system_prompt(agent)
     temp = temperature if temperature is not None else agent.get("temperature", 0.7)
 
