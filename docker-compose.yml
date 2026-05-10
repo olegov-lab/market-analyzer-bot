@@ -37,6 +37,8 @@ services:
     environment:
       DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/btcbot"
       REDIS_URL: "redis://redis:6379/0"
+    volumes:
+      - ./btcbot:/app/btcbot
     restart: unless-stopped
 
   scheduler:
@@ -53,6 +55,7 @@ services:
       REDIS_URL: "redis://redis:6379/0"
     volumes:
       - model_data:/app/models
+      - ./btcbot:/app/btcbot
     restart: unless-stopped
 
   api:
@@ -72,6 +75,8 @@ services:
     volumes:
       - model_data:/app/models
       - ./miniapp:/app/miniapp
+      - ./backend:/app/backend
+      - ./btcbot:/app/btcbot
     restart: unless-stopped
 
   bot:
@@ -90,6 +95,7 @@ services:
       PYTHONUNBUFFERED: 1
     volumes:
       - model_data:/app/models
+      - ./btcbot:/app/btcbot
     restart: unless-stopped
 
 volumes:

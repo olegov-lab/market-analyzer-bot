@@ -13,7 +13,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from btcbot.db import Database
-from btcbot.models import IndicatorSet, LiquidityZone, OnChainScore, Prediction
+from btcbot.models import IndicatorSet, LiquidityZone, OnChainScore, Prediction, VolatilityData
 
 MODEL_PATH = "models/lgb_4h.txt"
 TRAIN_DAYS = 90
@@ -133,6 +133,78 @@ class Analyzer:
         )
         try:
             await self.redis.setex(cache_key, 30, result.model_dump_json())
+        except Exception:
+            pass
+        return result
+
+    async def compute_volatility(self, symbol: str = "BTCUSD") -> Optional[VolatilityData]:
+        cache_key = f"volatility:{symbol}"
+        cached = await self.redis.get(cache_key)
+        if cached:
+            return VolatilityData.model_validate_json(cached)
+        since = datetime.now(timezone.utc) - timedelta(days=30)
+        rows = await self.db.get_hourly_candles_since(symbol, since)
+        if not rows or len(rows) < 5:
+            return None
+        df = pd.DataFrame([dict(r) for r in rows])
+        df = df.rename(columns={"bucket": "time"})
+        df = df.set_index("time").sort_index()
+        n = len(df)
+        bb_len = min(20, max(3, n - 2))
+        atr_len = min(14, max(2, n - 2))
+        bb = ta.bbands(df["close"], length=bb_len, std=2)
+        atr_series = ta.atr(df["high"], df["low"], df["close"], length=atr_len)
+        if bb is None or bb.empty or atr_series is None or atr_series.empty:
+            return None
+        bb_cols = [c for c in bb.columns if c.startswith("BBU_")]
+        if not bb_cols:
+            return None
+        bb_u = bb[bb_cols[0]]
+        bb_l = bb[[c for c in bb.columns if c.startswith("BBL_")][0]]
+        bb_m = bb[[c for c in bb.columns if c.startswith("BBM_")][0]]
+        bb_width = (bb_u - bb_l) / bb_m * 100
+        atr_pct = atr_series / df["close"] * 100
+        valid_mask = bb_width.notna() & atr_pct.notna()
+        valid = bb_width[valid_mask]
+        if valid.empty or len(valid) < 2:
+            return None
+        current_bb = float(bb_width.iloc[-1])
+        current_atr = float(atr_pct.iloc[-1])
+        bb_min, bb_max = float(bb_width.min()), float(bb_width.max())
+        atr_min, atr_max = float(atr_pct.min()), float(atr_pct.max())
+        bb_norm = (current_bb - bb_min) / (bb_max - bb_min) if bb_max > bb_min else 0.5
+        atr_norm = (current_atr - atr_min) / (atr_max - atr_min) if atr_max > atr_min else 0.5
+        pct = sum(bb_width <= current_bb) / len(bb_width) * 100
+        score = 0.3 * bb_norm + 0.3 * atr_norm + 0.4 * (pct / 100)
+        score = max(0.0, min(1.0, score))
+        if score < 0.25:
+            cls = "low"
+        elif score < 0.5:
+            cls = "medium"
+        elif score < 0.75:
+            cls = "high"
+        else:
+            cls = "extreme"
+        bb_window = bb_width.iloc[-48:] if len(bb_width) >= 48 else bb_width
+        atr_window = atr_pct.iloc[-48:] if len(atr_pct) >= 48 else atr_pct
+        bb_mm, bb_mx = float(bb_window.min()), float(bb_window.max())
+        atr_mm, atr_mx = float(atr_window.min()), float(atr_window.max())
+        history = []
+        for i in range(len(bb_window)):
+            bbn = (float(bb_window.iloc[i]) - bb_mm) / (bb_mx - bb_mm) if bb_mx > bb_mm else 0.5
+            atrn = (float(atr_window.iloc[i]) - atr_mm) / (atr_mx - atr_mm) if atr_mx > atr_mm else 0.5
+            bp = sum(bb_window.iloc[:i+1] <= bb_window.iloc[i]) / (i + 1) * 100 if i > 0 else 50
+            history.append(min(1.0, 0.3 * bbn + 0.3 * atrn + 0.4 * (bp / 100)))
+        result = VolatilityData(
+            current=round(score, 4),
+            classification=cls,
+            bb_width_pct=round(float(current_bb), 2),
+            atr_pct=round(float(current_atr), 2),
+            percentile=round(float(pct), 1),
+            history=[round(h, 4) for h in history[-24:]],
+        )
+        try:
+            await self.redis.setex(cache_key, 60, result.model_dump_json())
         except Exception:
             pass
         return result

@@ -222,3 +222,30 @@ async def predict(message: Message):
         lines.append("♻️ пришлю уведомление, когда прогноз будет готов")
 
     await message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=menu_kb)
+
+
+@dp.message(Command(commands=["volatility"]))
+async def volatility(message: Message):
+    vol = await analyzer.compute_volatility()
+    if not vol:
+        await message.answer(
+            f"📊 *BTC Monitor* · Волатильность\n\n⏳ недостаточно данных\n\n{_ts()}",
+            parse_mode="Markdown",
+            reply_markup=menu_kb,
+        )
+        return
+    labels = {"low": "🟢 Низкая", "medium": "🟡 Средняя", "high": "🟠 Высокая", "extreme": "🔴 Экстремальная"}
+    conf_pct = round(vol.current * 100)
+    lines = [
+        f"📊 *BTC Monitor* · Волатильность",
+        "",
+        _ts(),
+        "",
+        f"▸ **Уровень:** {labels.get(vol.classification, vol.classification)} · {conf_pct}%",
+        "",
+        "── Показатели ──",
+        f"▸ **BB ширина:** {vol.bb_width_pct:.2f}% от цены",
+        f"▸ **ATR(14):** {vol.atr_pct:.2f}% от цены",
+        f"▸ **Перцентиль (30д):** {vol.percentile:.0f}%",
+    ]
+    await message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=menu_kb)

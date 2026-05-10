@@ -300,6 +300,23 @@ class Database:
                 ORDER BY bucket ASC
             """, symbol, since)
 
+    async def get_hourly_candles_since(self, symbol: str, since: datetime) -> list[asyncpg.Record]:
+        async with self.pool.acquire() as conn:
+            return await conn.fetch("""
+                SELECT
+                    time_bucket('1 hour', bucket) AS bucket,
+                    FIRST(open, bucket) AS open,
+                    MAX(high) AS high,
+                    MIN(low) AS low,
+                    LAST(close, bucket) AS close,
+                    SUM(volume) AS volume
+                FROM candles_1m
+                WHERE symbol = $1 AND bucket >= $2
+                GROUP BY time_bucket('1 hour', bucket), symbol
+                HAVING COUNT(*) >= 1
+                ORDER BY bucket ASC
+            """, symbol, since)
+
     async def get_active_users(self) -> list[asyncpg.Record]:
         async with self.pool.acquire() as conn:
             return await conn.fetch(
@@ -364,3 +381,51 @@ class Database:
                 "UPDATE price_alerts SET triggered = TRUE, triggered_at = NOW() WHERE id = $1",
                 alert_id,
             )
+
+    async def get_candles(
+        self, symbol: str, timeframe: str, limit: int = 100
+    ) -> list[dict]:
+        async with self.pool.acquire() as conn:
+            if timeframe == "4h":
+                rows = await conn.fetch("""
+                    SELECT bucket, open, high, low, close, volume
+                    FROM candles_4h
+                    WHERE symbol = $1
+                    ORDER BY bucket DESC
+                    LIMIT $2
+                """, symbol, limit)
+            else:
+                bucket_map = {
+                    "15m": "15 minutes",
+                    "1h": "1 hour",
+                    "1d": "1 day",
+                    "1w": "1 week",
+                }
+                interval = bucket_map.get(timeframe)
+                if not interval:
+                    return []
+                rows = await conn.fetch("""
+                    SELECT
+                        time_bucket($3::text, bucket) AS bucket,
+                        FIRST(open, bucket) AS open,
+                        MAX(high) AS high,
+                        MIN(low) AS low,
+                        LAST(close, bucket) AS close,
+                        SUM(volume) AS volume
+                    FROM candles_1m
+                    WHERE symbol = $1
+                    GROUP BY time_bucket($3::text, bucket), symbol
+                    ORDER BY bucket DESC
+                    LIMIT $2
+                """, symbol, limit, interval)
+            return [
+                {
+                    "time": int(r["bucket"].timestamp()),
+                    "open": r["open"],
+                    "high": r["high"],
+                    "low": r["low"],
+                    "close": r["close"],
+                    "volume": r["volume"],
+                }
+                for r in reversed(rows)
+            ]

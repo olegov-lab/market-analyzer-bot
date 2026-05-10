@@ -8,6 +8,7 @@
 <base href="/miniapp/">
 <link rel="stylesheet" href="styles.css">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
 <div id="app">
@@ -19,12 +20,14 @@
   </main>
   <nav id="bottom-nav">
     <button class="nav-btn active" data-page="price">💰<span>Цена</span></button>
+    <button class="nav-btn" data-page="chart">📊<span>График</span></button>
     <button class="nav-btn" data-page="predict">🔮<span>Прогноз</span></button>
+    <button class="nav-btn" data-page="chat">🧠<span>AI</span></button>
     <button class="nav-btn" data-page="news">📰<span>Новости</span></button>
     <button class="nav-btn" data-page="learn">📖<span>Уроки</span></button>
     <button class="nav-btn" data-page="alerts">🔔<span>Подписки</span></button>
   </nav>
 </div>
-<script src="app.js?v=20260510"></script>
+<script src="app.js?v=20260510.3"></script>
 </body>
 </html>

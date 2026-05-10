@@ -92,3 +92,12 @@ class OnChainScore(BaseModel):
     rhodl: Optional[float] = None
     cycle_phase: str = "UNKNOWN"
     cycle_score: float = 0.0
+
+
+class VolatilityData(BaseModel):
+    current: float
+    classification: str
+    bb_width_pct: float
+    atr_pct: float
+    percentile: float
+    history: list[float]

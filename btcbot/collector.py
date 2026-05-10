@@ -68,9 +68,9 @@ class PriceBuffer:
         if not self._buf:
             return
         batch = self._buf[:]
-        self._buf.clear()
         try:
             await self.db.save_prices_batch(batch)
+            self._buf.clear()
         except Exception as e:
             logger.error("Batch insert failed: {}", e)
 

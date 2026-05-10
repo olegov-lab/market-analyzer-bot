@@ -30,7 +30,7 @@ def _get_client() -> AsyncOpenAI:
         _client = AsyncOpenAI(
             api_key=settings.opencode_go_api_key,
             base_url=settings.opencode_go_endpoint,
-            timeout=60.0,
+            timeout=120.0,
             max_retries=1,
         )
     return _client

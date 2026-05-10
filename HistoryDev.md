@@ -1707,3 +1707,215 @@ b09bb63 Replace top scrolling nav with bottom tab bar
 3925af0 Add Fear & Greed Index to dashboard + /btc
 bc9185b Add AI Chat /ask with Market-Brain agent
 ```
+
+---
+
+## Сессия 33 — AI Chat в Mini App, Price Chart, Volatility Meter
+
+### Дата
+10 May 2026
+
+### Участники
+- Разработчик
+- Sigma-Architect (DeepSeek-R1:14b)
+- Rapid-Dev (DeepSeek-Coder-V2:16b)
+- UI/UX Designer
+
+### Сделано
+
+**1. AI Chat в Mini App (вкладка 🧠 AI)**
+- Новая вкладка в навигации Mini App (между 🔮 Прогноз и 📰 Новости)
+- POST `/miniapp/ask` — создаёт фоновую задачу, возвращает `task_id` сразу (polling вместо таймаута)
+- GET `/miniapp/ask/{task_id}` — поллинг статуса каждые 1.5с
+- UI: поле ввода, история сообщений, "⏳ думаю..." с pulse-анимацией, ошибки
+- Rate limit: 10/min POST, 120/min GET
+
+**2. Fix 405 Method Not Allowed**
+- Catch-all `GET /miniapp/{full_path:path}` перехватывал POST `/miniapp/ask`
+- Решение: volume mount `./backend:/app/backend` + `docker cp` + правильный порядок роутов
+
+**3. Fix AI Timeout (бот `/ask`)**
+- OpenCode Go API отвечал >60с на длинные промпты
+- `agents.py`: timeout 60→120 секунд
+- Бот и API контейнеры обновлены
+
+**4. Price Chart (вкладка 📊 График)**
+- TradingView lightweight-charts v4.1.1
+- Таймфреймы: 1H, 4H, 1D, 1W
+- Типы: Свечи, Линия, Область
+- Volume histogram снизу
+- Crosshair с OHLC при наведении
+- Инфо-бар O/H/L/C/Vol
+- Динамическая высота 55vh (280-500px)
+- Тёмная/светлая тема Telegram
+- GET `/miniapp/chart` с Redis-кэшем 30с
+- `db.get_candles()` — time_bucket из candles_1m / candles_4h MV
+
+**5. Volatility Risk Meter (📊 Волатильность)**
+- `VolatilityData` модель
+- `compute_volatility()` в Analyzer — BB ширина + ATR + перцентиль 30д
+- API GET `/miniapp/volatility` (кэш 60с)
+- Dashboard: gauge + sparkline 24ч
+- Predict tab: бейдж уровня волатильности
+- Бот: команда `/volatility`
+- Фикс pandas `&` на float Series
+
+**6. Инфраструктура**
+- Volume mount `./btcbot:/app/btcbot` для api, бота, шедулера, коллектора
+- Volume mount `./backend:/app/backend` для api
+- Docker compose обновлён
+- Cache-busting `app.js?v=20260510.3`
+
+### Файлы
+- `miniapp/index.html` — 📊 + 🧠 вкладки, CDN lightweight-charts
+- `miniapp/app.js` — chat UI, chart rendering, volatility card (+860 строк)
+- `miniapp/styles.css` — chart + volatility + chat styles (+507 строк)
+- `backend/api.py` — /miniapp/ask, /chart, /volatility, dashboard (+394 строк)
+- `backend/agents.py` — timeout 60→120
+- `btcbot/analyzer.py` — compute_volatility() (+665 строк)
+- `btcbot/db.py` — get_hourly_candles_since(), get_candles()
+- `btcbot/models.py` — VolatilityData
+- `bot/handlers/btc.py` — /volatility handler
+- `bot/handlers/ask.py` — /ask handler
+- `bot/state.py` — /volatility в меню
+- `docker-compose.yml` — volume mounts для btcbot, backend
+
+### Проблемы
+- OpenCode Go API медленный (10-60с) — решено polling + увеличенный timeout
+- catch-all роут 405 — решено порядком регистрации + volume mount
+- `get_candles` не было на сервере — решено docker cp + volume mount
+- pandas `&` на float — решено через `notna()` + boolean mask
+- Недостаточно данных для 30 свечей — порог снижен до 5, BB/ATR адаптивны
+
+### Следующие шаги
+- Shareable Cards
+- Flash Event Alerts
+- Streaks/XP/Badges
+- Paper Trading
+- Lesson Quizzes
+- Daily Market Story
+- Push-уведомления
+- Portfolio Dashboard
+
+---
+
+## Сессия 34 — Полный codebase review 4-мя агентами и приоритетные фиксы
+
+### Дата
+10 May 2026
+
+### Участники
+- **Sigma-Architect** (GLM-5.1) — архитектурный аудит
+- **Market-Brain** (DeepSeek V4 Pro) — аналитический аудит
+- **Rapid-Dev** (DeepSeek V4 Pro) — code quality аудит
+- **Break-Hunter** (DeepSeek V4 Pro) — security + bug hunting
+- **Главный разработчик** — координация и реализация
+
+### 34.1 Полный обзор архитектуры (Explore agent)
+
+**Стек:** Python 3.12, aiogram 3.x, FastAPI, TimescaleDB 16, Redis 7, LightGBM, APScheduler, Docker Compose
+
+**6 Docker сервисов:** postgres, redis, collector, scheduler, api, bot
+
+**25 агентов:** DeepSeek V4 Pro (9), GLM-5.1 (11), Kimi K2.6 (3)
+
+### 34.2 Sigma-Architect — критические проблемы
+
+**P0 — Немедленно:**
+1. `network_mode: host` — нет изоляции Docker
+2. `return_exceptions=True` — тихое проглатывание ошибок
+3. Race condition на ML-модели — конкурентный predict/train
+
+**P1 — Высокий приоритет:**
+4. In-memory task store — теряется при рестарте
+5. SQL injection в `time_bucket` — f-string
+6. Duplicate routes — `/miniapp/chart` определён дважды
+
+**План действий:**
+1. Bridge network + port mapping
+2. Redis-backed task queue (arq)
+3. Collector refactor: batch writes + error isolation
+4. ML model → отдельный worker
+5. CI/CD pipeline
+
+### 34.3 Market-Brain — качество данных
+
+**Оценка аналитической ценности: 3/10** (первые 2-3 недели)
+
+**Проблемы:**
+- Всего ~18 часов данных — ML, MA200, on-chain тренды не работают
+- Google News RSS ненадёжен (403/пусто)
+- `return_exceptions=True` маскирует падение Bitview, Fear & Greed, Redis
+- Sentiment примитивный (нет обработки отрицаний)
+- Нет проверки `auth_date` в init_data Telegram
+
+**Рекомендации:**
+- **P0:** Seed 90 дней истории из CoinGecko при первом старте
+- **P1:** Замена Google News RSS на CryptoPanic API
+- **P1:** Real-time % change alerts (движение >2% за 5 мин)
+- **P1:** Divergence Scanner (RSI/MACD)
+- **P2:** On-chain тренды (7d/30d change) вместо абсолютных значений
+- **P2:** Order book imbalance (Binance bookTicker)
+
+### 34.4 Rapid-Dev — code quality
+
+**14 конкретных багов:**
+
+| # | Файл | Строки | Проблема |
+|---|------|--------|----------|
+| 1 | `backend/api.py` | 259+363 | Дубль роута `/miniapp/chart` |
+| 2 | `backend/api.py` + `bot/handlers/ask.py` | — | Дубль market context |
+| 3 | `btcbot/analyzer.py` | 89 vs 305 | Дубль индикаторов |
+| 4 | `backend/agents.py` | 22 | Dead code `AGENT_MODEL = "qwen3.6-plus"` |
+| 5 | `btcbot/db.py` | 407 | **SQL injection** в time_bucket |
+| 6 | `miniapp/app.js` | 88 | XSS в `showError()` |
+| 7 | `miniapp/app.js` | 569 | chartDataCache без инвалидации |
+| 8 | `miniapp/app.js` | 8 | chatMessages бесконечный рост |
+| 9 | `btcbot/db.py` | 175 | executemany без транзакции |
+| 10 | `backend/api.py` | 156 | return_exceptions без логов |
+| 11 | `miniapp/app.js` | 466 | polling без таймаута |
+| 12 | `docker-compose.yml` | 84 | network_mode: host |
+| 13 | `btcbot/db.py` | 16 | _init_schema на каждый старт |
+| 14 | `agents/*.json` | — | `role: system` нигде не читается |
+
+### 34.5 Break-Hunter — баги, race conditions, security
+
+**22 бага + 3 Race Conditions + 12 Edge Cases + 7 уязвимостей**
+
+**P0 (Critical):**
+1. `PriceBuffer._flush()` — `_buf.clear()` ДО `save_prices_batch()` → потеря записей при ошибке БД
+2. `_lgb_model` — TOCTOU race: два параллельных training через `threading.Lock` не защищает полный lifecycle
+3. SQL injection через f-string в `time_bucket`
+
+**P1 (High):**
+4. `return_exceptions=True` маскирует все ошибки без логирования
+5. Telegram `init_data` без проверки `auth_date` (украденный токен работает вечно)
+6. Нет rate limiting на bot команды (DB pool exhaustion DoS)
+7. `VolumeTracker` — in-memory список растёт безгранично (3.6M entries/час)
+8. Retrain не проверяет, идёт ли уже training
+9. PriceBuffer теряет данные при падении процесса (нет WAL/Redis backup)
+10. `_ask_tasks` in-memory dict без лимита размера
+
+**Edge Cases:**
+- Нет on-chain данных → `predict_1w` возвращает None → exception в meta
+- Меньше 14 rows для RSI → `compute_indicators` возвращает None → AttributeError
+- User timezone != UTC → алерты приходят в неправильное время
+- `high == low` или `volume == 0` → искажение признаков
+
+### 34.6 Приоритетные фиксы (первая очередь)
+
+| # | Приоритет | Фикс | Файл | Статус |
+|---|-----------|------|------|--------|
+| 1 | P0 | PriceBuffer: clear ПОСЛЕ успешного save | `btcbot/collector.py` | ✅ |
+| 2 | P0 | `return_exceptions=True` → helper с логированием | `backend/api.py`, `bot/handlers/ask.py` | ✅ |
+| 3 | P1 | Удалить дубль `/miniapp/chart` роута | `backend/api.py` | ✅ |
+| 4 | P1 | SQL injection: time_bucket параметризовать | `btcbot/db.py` | ✅ |
+| 5 | P0 | Race condition `_lgb_model` → asyncio.Lock + флаг | `btcbot/analyzer.py` | ⏳ |
+| 6 | P0 | Bridge network вместо `network_mode: host` | `docker-compose.yml` | ⏳ |
+| 7 | P1 | Seed 90d истории из CoinGecko | `btcbot/collector.py` | ⏳ |
+
+### 34.7 История изменений
+
+```
+[commits for this session]
+```

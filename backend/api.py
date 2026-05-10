@@ -1,5 +1,7 @@
 import asyncio
+import json
 import os
+import time
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -18,6 +20,7 @@ from btcbot.db import Database
 from btcbot.fear_greed import FearGreedIndex
 from btcbot.lessons import LESSONS
 from btcbot.news import NEWS_CACHE_TTL, build_sentiment_summary, fetch_news
+from btcbot.utils import safe_gather
 from backend.miniapp_auth import verify_telegram_init_data
 from backend.agents import ask_agent, list_agents
 
@@ -56,6 +59,7 @@ async def startup():
     analyzer = Analyzer(db, redis_client)
     fear_greed = FearGreedIndex(redis_client)
     asyncio.create_task(analyzer.warmup_cache())
+    asyncio.create_task(_cleanup_old_tasks())
 
 
 @app.on_event("shutdown")
@@ -150,11 +154,13 @@ async def subscribe(request: Request):
 @limiter.limit("30/minute")
 async def miniapp_dashboard(request: Request):
     user_id = await _get_user_id(request)
-    price, indicators, pred, fng = await asyncio.gather(
+    price, indicators, pred, fng, vol = await safe_gather(
         db.get_latest_price("BTCUSD"),
         analyzer.compute_indicators(),
         analyzer.predict(),
         fear_greed.fetch(),
+        analyzer.compute_volatility(),
+        log_prefix="dashboard",
     )
     prediction_summary = None
     if pred:
@@ -164,11 +170,13 @@ async def miniapp_dashboard(request: Request):
             "price_min": pred.price_min,
             "price_max": pred.price_max,
         }
+    vol_data = vol.model_dump() if vol else None
     return {
         "price": price,
         "indicators": indicators.model_dump() if indicators else None,
         "prediction_summary": prediction_summary,
         "fear_greed": fng,
+        "volatility": vol_data,
         "time": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -242,6 +250,122 @@ async def miniapp_unsubscribe(request: Request, sub_id: int, alert_type: str):
     user_id = await _get_user_id(request)
     await db.remove_alert_type(sub_id, alert_type)
     return {"status": "deleted"}
+
+
+# ─── Async AI task store (polling-based) ──────────────────────────
+
+_ask_tasks: dict[str, dict] = {}
+_ask_tasks_lock = asyncio.Lock()
+_ask_task_counter = 0
+
+async def _cleanup_old_tasks():
+    while True:
+        await asyncio.sleep(300)
+        now = time.time()
+        async with _ask_tasks_lock:
+            expired = [tid for tid, t in _ask_tasks.items() if now - t["created_at"] > 600]
+            for tid in expired:
+                del _ask_tasks[tid]
+
+async def _run_ask_task(task_id: str, question: str, user_id: int):
+    try:
+        async with _ask_tasks_lock:
+            _ask_tasks[task_id]["status"] = "running"
+        price, indicators, fng, pred = await safe_gather(
+            db.get_latest_price("BTCUSD"),
+            analyzer.compute_indicators(),
+            fear_greed.fetch(),
+            analyzer.predict(),
+            log_prefix="ask_task",
+        )
+        ctx_parts = [f"Сегодня {datetime.now(timezone.utc).strftime('%d %B %Y, %H:%M UTC')}"]
+        if price:
+            ctx_parts.append(f"Цена BTC: ${price:,.0f}")
+        if indicators:
+            if indicators.rsi is not None:
+                ctx_parts.append(f"RSI(14): {indicators.rsi:.1f}")
+            if indicators.ma_50 is not None:
+                ctx_parts.append(f"MA50: ${indicators.ma_50:,.0f}")
+            if indicators.ma_200 is not None:
+                ctx_parts.append(f"MA200: ${indicators.ma_200:,.0f}")
+        if fng:
+            ctx_parts.append(f"Fear & Greed: {fng['value']}/100 ({fng['classification']})")
+        if pred:
+            ctx_parts.append(f"Сигнал: {pred.direction} (уверенность {pred.confidence:.0%})")
+        ctx = " | ".join(ctx_parts)
+        result = await ask_agent(
+            "marketbrain",
+            f"Контекст рынка: {ctx}\n\nВопрос пользователя: {question}\n\nОтветь на русском языке, используя контекст если нужно.",
+            temperature=0.7,
+        )
+        async with _ask_tasks_lock:
+            if result and "[Agent error:" not in result:
+                _ask_tasks[task_id]["status"] = "done"
+                _ask_tasks[task_id]["result"] = result
+            else:
+                _ask_tasks[task_id]["status"] = "error"
+                _ask_tasks[task_id]["result"] = "AI agent temporarily unavailable"
+    except Exception as e:
+        async with _ask_tasks_lock:
+            _ask_tasks[task_id]["status"] = "error"
+            _ask_tasks[task_id]["result"] = str(e)
+
+
+@app.post("/miniapp/ask")
+@limiter.limit("10/minute")
+async def miniapp_ask(request: Request):
+    user_id = await _get_user_id(request)
+    body = await request.json()
+    question = body.get("question", "").strip()
+    if not question:
+        raise HTTPException(400, "question is required")
+    global _ask_task_counter
+    async with _ask_tasks_lock:
+        _ask_task_counter += 1
+        task_id = f"ask_{_ask_task_counter}_{int(time.time())}"
+        _ask_tasks[task_id] = {"status": "pending", "result": None, "created_at": time.time()}
+    asyncio.create_task(_run_ask_task(task_id, question, user_id))
+    return {"task_id": task_id}
+
+
+@app.get("/miniapp/ask/{task_id}")
+@limiter.limit("120/minute")
+async def miniapp_ask_status(request: Request, task_id: str):
+    user_id = await _get_user_id(request)
+    async with _ask_tasks_lock:
+        task = _ask_tasks.get(task_id)
+    if not task:
+        raise HTTPException(404, "Task not found")
+    return {"status": task["status"], "result": task["result"]}
+
+
+@app.get("/miniapp/chart")
+@limiter.limit("30/minute")
+async def miniapp_chart(request: Request, timeframe: str = "4h", limit: int = 100):
+    user_id = await _get_user_id(request)
+    if timeframe not in ("15m", "1h", "4h", "1d", "1w"):
+        raise HTTPException(400, "Invalid timeframe")
+    limit = max(10, min(limit, 200))
+    cache_key = f"chart:{timeframe}:{limit}"
+    if redis_client:
+        cached = await redis_client.get(cache_key)
+        if cached:
+            return json.loads(cached)
+    candles = await db.get_candles("BTCUSD", timeframe, limit)
+    result = {"candles": candles}
+    if redis_client:
+        await redis_client.setex(cache_key, 30, json.dumps(result, default=str))
+    return result
+
+
+@app.get("/miniapp/volatility")
+@limiter.limit("30/minute")
+async def miniapp_volatility(request: Request):
+    user_id = await _get_user_id(request)
+    vol = await analyzer.compute_volatility()
+    if not vol:
+        raise HTTPException(503, "Cannot compute volatility data")
+    return vol.model_dump()
 
 
 # ─── Static files for Mini App ─────────────────────────────────────

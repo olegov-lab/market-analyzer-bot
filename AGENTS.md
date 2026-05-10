@@ -23,3 +23,10 @@ Agents defined in `agents/*.json` — each has name, model, style, and instructi
 ## Bot
 - Telegram bot in `bot/main.py`
 - Token from `.env` -> `TELEGRAM_BOT_TOKEN`
+
+## Workflow
+- **All coding must be done in collaboration with Sigma-Architect (DeepSeek-R1:14b) and Rapid-Dev (DeepSeek-Coder-V2:16b).**
+- Before making ANY code changes: consult the architect first via the `task` tool with subagent_type="general".
+- The architect provides detailed implementation plans; the developer implements them exactly.
+- Rapid-Dev assists with implementation details, code review, and debugging.
+- After implementation, deploy and verify on the server: `scp` → `docker cp` → `docker restart`.

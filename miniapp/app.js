@@ -5,6 +5,8 @@ let userId = null;
 let pollTimers = {};
 let articles = [];
 let lessons = [];
+let chatMessages = [];
+let chatSending = false;
 
 try {
   Telegram = window.Telegram.WebApp;
@@ -26,9 +28,9 @@ try {
   } catch (_) {}
 }
 
-async function apiCall(path, options = {}) {
+async function apiCall(path, options = {}, timeout = 15000) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
   const headers = { 'X-Telegram-Init-Data': initData, ...options.headers };
   try {
     const resp = await fetch(`${API_BASE}${path}`, { ...options, headers, signal: controller.signal });
@@ -210,6 +212,30 @@ async function renderDashboard() {
       html += '</div>';
     }
 
+    if (data.volatility) {
+      const v = data.volatility;
+      const pct = Math.round(v.current * 100);
+      const volColor = pct < 25 ? 'var(--green)' : pct < 50 ? 'var(--yellow)' : pct < 75 ? '#ff9800' : 'var(--red)';
+      const volLabel = v.classification === 'low' ? 'Низкая' : v.classification === 'medium' ? 'Средняя' : v.classification === 'high' ? 'Высокая' : 'Экстремальная';
+      html += '<div class="card"><div class="card-title">📊 Волатильность</div>';
+      html += '<div class="vol-gauge"><div class="vol-gauge-fill" style="width:' + pct + '%;background:' + volColor + '"></div></div>';
+      html += '<div class="row"><span class="label">Уровень</span><span class="value">' + volLabel + '</span></div>';
+      html += '<div class="row"><span class="label">BB ширина</span><span class="value">' + v.bb_width_pct.toFixed(2) + '%</span></div>';
+      html += '<div class="row"><span class="label">ATR</span><span class="value">' + v.atr_pct.toFixed(2) + '%</span></div>';
+      html += '<div class="row"><span class="label">Перцентиль (30д)</span><span class="value">' + v.percentile.toFixed(0) + '%</span></div>';
+      if (v.history && v.history.length) {
+        const max = Math.max(...v.history, 0.01);
+        html += '<div class="sparkline">';
+        for (const h of v.history) {
+          const hp = Math.max(2, (h / max) * 100);
+          const hc = h < 0.25 ? 'var(--green)' : h < 0.5 ? 'var(--yellow)' : h < 0.75 ? '#ff9800' : 'var(--red)';
+          html += '<div class="spark-bar" style="height:' + hp + '%;background:' + hc + '"></div>';
+        }
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+
     html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;">♻️ Обновление каждые 30с</div>';
     render(html);
   } catch (e) {
@@ -222,7 +248,10 @@ async function renderPredict() {
   tgBackButton('hide');
   showLoading();
   try {
-    const pred = await apiCall('/miniapp/predict');
+    const [pred, vol] = await Promise.all([
+      apiCall('/miniapp/predict'),
+      apiCall('/miniapp/volatility').catch(() => null),
+    ]);
     let html = '';
 
     if (pred) {
@@ -240,7 +269,13 @@ async function renderPredict() {
       const priceMin = pred.price_min || 0;
       const priceMax = pred.price_max || 0;
 
-      html += '<div class="card"><div class="card-title">Сегодня</div><div class="signal ' + signalClass + '">' + signalEmoji + ' ' + signal + '</div><div style="margin-top:8px;font-weight:600;">$' + fmtPrice(priceMin) + ' – $' + fmtPrice(priceMax) + '</div><div class="conf-bar"><div class="conf-bar-fill ' + confColor + '" style="width:' + confPct + '%"></div></div><div class="row"><span class="label">Уверенность</span><span class="value">' + confPct + '%</span></div></div>';
+      html += '<div class="card"><div class="card-title">Сегодня</div><div class="signal ' + signalClass + '">' + signalEmoji + ' ' + signal + '</div><div style="margin-top:8px;font-weight:600;">$' + fmtPrice(priceMin) + ' – $' + fmtPrice(priceMax) + '</div><div class="conf-bar"><div class="conf-bar-fill ' + confColor + '" style="width:' + confPct + '%"></div></div><div class="row"><span class="label">Уверенность</span><span class="value">' + confPct + '%</span></div>';
+      if (vol) {
+        const vLabel = vol.classification === 'low' ? '🟢 Низкая' : vol.classification === 'medium' ? '🟡 Средняя' : vol.classification === 'high' ? '🟠 Высокая' : '🔴 Экстремальная';
+        const vCls = vol.classification === 'low' ? 'green' : vol.classification === 'medium' ? 'yellow' : vol.classification === 'high' ? 'orange' : 'red';
+        html += '<div class="row"><span class="label">📊 Волатильность</span><span class="value"><span class="vol-indicator ' + vCls + '">' + vLabel + '</span></span></div>';
+      }
+      html += '</div>';
 
       const zones = p4h.liquidity_zones || [];
       if (zones.length) {
@@ -360,6 +395,107 @@ async function renderLesson(id) {
   }
 }
 
+async function renderChat() {
+  setActiveNav('chat');
+  tgBackButton('hide');
+  stopAllPolls();
+
+  let html = '<div class="chat-container"><div class="chat-messages" id="chat-messages">';
+
+  if (chatMessages.length === 0) {
+    html += '<div class="chat-welcome"><h3>🧠 AI Аналитика</h3><p>Спросите Market-Brain о Bitcoin. Получайте анализ с учётом текущих рыночных данных.</p><p style="margin-top:12px;font-size:13px;">▪ "Почему BTC падает?"<br>▪ "Прогноз на сегодня"<br>▪ "Что такое MVRV?"</p></div>';
+  } else {
+    for (const m of chatMessages) {
+      const cls = m.role === 'user' ? 'user' : m.role === 'thinking' ? 'thinking' : m.role === 'error' ? 'error' : 'bot';
+      html += '<div class="chat-msg ' + cls + '">' + escapeHtml(m.text) + '</div>';
+    }
+  }
+
+  html += '</div>';
+  html += '<div class="chat-input-bar">';
+  html += '<input type="text" class="chat-input" id="chat-input" placeholder="Задайте вопрос о Bitcoin..."' + (chatSending ? ' disabled' : '') + '>';
+  html += '<button class="chat-send-btn" id="chat-send-btn"' + (chatSending ? ' disabled' : '') + '>➤</button>';
+  html += '</div></div>';
+
+  render(html);
+
+  const messagesEl = document.getElementById('chat-messages');
+  if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
+
+  const input = document.getElementById('chat-input');
+  const sendBtn = document.getElementById('chat-send-btn');
+  if (!input || !sendBtn) return;
+
+  const doSend = () => {
+    const text = input.value.trim();
+    if (!text || chatSending) return;
+    input.value = '';
+    sendMessage(text);
+  };
+
+  sendBtn.addEventListener('click', doSend);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') doSend();
+  });
+
+  if (!chatSending) input.focus();
+}
+
+async function sendMessage(text) {
+  chatMessages.push({ role: 'user', text });
+  chatMessages.push({ role: 'thinking', text: '⏳ думаю...' });
+  chatSending = true;
+  renderChat();
+
+  try {
+    const data = await apiCall('/miniapp/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: text }),
+    });
+
+    const taskId = data.task_id;
+    if (!taskId) {
+      chatMessages.pop();
+      chatMessages.push({ role: 'error', text: 'Не удалось создать задачу' });
+      chatSending = false;
+      renderChat();
+      return;
+    }
+
+    let done = false;
+    while (!done) {
+      await new Promise(r => setTimeout(r, 1500));
+      const status = await apiCall('/miniapp/ask/' + taskId);
+      switch (status.status) {
+        case 'done':
+          chatMessages.pop();
+          chatMessages.push({ role: 'bot', text: status.result || 'Пустой ответ' });
+          done = true;
+          break;
+        case 'error':
+          chatMessages.pop();
+          chatMessages.push({ role: 'error', text: '❌ ' + (status.result || 'AI недоступен') });
+          done = true;
+          break;
+        case 'pending':
+        case 'running':
+          break;
+        default:
+          chatMessages.pop();
+          chatMessages.push({ role: 'error', text: '❌ Неизвестный статус: ' + status.status });
+          done = true;
+      }
+    }
+  } catch (e) {
+    chatMessages.pop();
+    chatMessages.push({ role: 'error', text: '❌ ' + e.message });
+  }
+
+  chatSending = false;
+  renderChat();
+}
+
 async function renderAlerts() {
   setActiveNav('alerts');
   tgBackButton('hide');
@@ -424,10 +560,288 @@ async function renderAlerts() {
   }
 }
 
+// ─── Chart ──────────────────────────────────────────────────────────
+let chartInstance = null;
+let chartResizeObserver = null;
+let lastCandles = null;
+let chartType = 'candlestick';
+let chartTimeframe = '4h';
+let chartDataCache = {};
+
+function destroyChart() {
+  if (chartResizeObserver) {
+    chartResizeObserver.disconnect();
+    chartResizeObserver = null;
+  }
+  if (chartInstance) {
+    chartInstance.remove();
+    chartInstance = null;
+  }
+  lastCandles = null;
+}
+
+async function renderChart() {
+  setActiveNav('chart');
+  tgBackButton('hide');
+  stopAllPolls();
+
+  render(`
+    <div class="chart-header">
+      <div class="chart-header-main">
+        <div class="chart-price" id="chart-price">—</div>
+        <div class="chart-change" id="chart-change">—</div>
+      </div>
+      <div class="chart-pair">BTC/USD</div>
+    </div>
+    <div class="chart-controls">
+      <div class="chart-timeframes">
+        <button class="chart-btn" data-tf="1h">1H</button>
+        <button class="chart-btn active" data-tf="4h">4H</button>
+        <button class="chart-btn" data-tf="1d">1D</button>
+        <button class="chart-btn" data-tf="1w">1W</button>
+      </div>
+      <div class="chart-types">
+        <button class="chart-btn active" data-ct="candlestick">Свечи</button>
+        <button class="chart-btn" data-ct="line">Линия</button>
+        <button class="chart-btn" data-ct="area">Область</button>
+      </div>
+    </div>
+    <div class="chart-container" id="chart-container">
+      <div class="loading" style="padding:20px;"><div class="spinner"></div></div>
+    </div>
+    <div class="chart-info-bar" id="chart-info-bar"></div>
+  `);
+
+  document.querySelectorAll('[data-tf]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      haptic('light');
+      document.querySelectorAll('[data-tf]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      chartTimeframe = btn.dataset.tf;
+      loadChartData();
+    });
+  });
+
+  document.querySelectorAll('[data-ct]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      haptic('light');
+      document.querySelectorAll('[data-ct]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      chartType = btn.dataset.ct;
+      if (lastCandles) initChart(lastCandles);
+    });
+  });
+
+  await loadChartData();
+}
+
+async function loadChartData() {
+  const container = document.getElementById('chart-container');
+  if (!container) return;
+
+  if (!chartInstance) {
+    container.innerHTML = '<div class="loading" style="padding:20px;"><div class="spinner"></div></div>';
+  }
+
+  try {
+    const cacheKey = `chart:${chartTimeframe}:100`;
+    let candles;
+    if (chartDataCache[cacheKey]) {
+      candles = chartDataCache[cacheKey];
+    } else {
+      const data = await apiCall(`/miniapp/chart?timeframe=${chartTimeframe}&limit=100`);
+      candles = data.candles;
+      if (candles && candles.length) chartDataCache[cacheKey] = candles;
+    }
+    if (!candles || !candles.length) {
+      container.innerHTML = '<div class="card" style="text-align:center;padding:20px;color:var(--hint);">Нет данных</div>';
+      return;
+    }
+    initChart(candles);
+  } catch (e) {
+    container.innerHTML = `<div class="card" style="text-align:center;padding:20px;color:var(--red);">❌ ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function initChart(candles) {
+  destroyChart();
+  lastCandles = candles;
+
+  const container = document.getElementById('chart-container');
+  if (!container) return;
+
+  container.innerHTML = '';
+
+  const textColor = getComputedStyle(container).getPropertyValue('--text').trim() || '#d1d1d1';
+  const chartHeight = Math.min(Math.max(Math.round(window.innerHeight * 0.55), 280), 500);
+  chartInstance = LightweightCharts.createChart(container, {
+    layout: {
+      background: { type: 'solid', color: 'transparent' },
+      textColor: textColor,
+    },
+    grid: {
+      vertLines: { color: 'rgba(255,255,255,0.04)' },
+      horzLines: { color: 'rgba(255,255,255,0.04)' },
+    },
+    crosshair: {
+      mode: LightweightCharts.CrosshairMode.Normal,
+      vertLine: {
+        width: 1,
+        color: 'rgba(36,129,204,0.25)',
+        style: LightweightCharts.LineStyle.Dashed,
+        labelBackgroundColor: 'rgba(36,129,204,0.7)',
+      },
+      horzLine: {
+        width: 1,
+        color: 'rgba(36,129,204,0.25)',
+        style: LightweightCharts.LineStyle.Dashed,
+        labelBackgroundColor: 'rgba(36,129,204,0.7)',
+      },
+    },
+    rightPriceScale: {
+      borderColor: 'rgba(255,255,255,0.08)',
+    },
+    timeScale: {
+      borderColor: 'rgba(255,255,255,0.08)',
+      timeVisible: true,
+      secondsVisible: false,
+    },
+    width: container.clientWidth,
+    height: chartHeight,
+    handleScroll: true,
+    handleScale: true,
+  });
+
+  let series;
+  switch (chartType) {
+    case 'line':
+      series = chartInstance.addLineSeries({
+        color: '#2481cc',
+        lineWidth: 2,
+      });
+      break;
+    case 'area':
+      series = chartInstance.addAreaSeries({
+        topColor: 'rgba(36,129,204,0.4)',
+        bottomColor: 'rgba(36,129,204,0.01)',
+        lineColor: '#2481cc',
+        lineWidth: 2,
+      });
+      break;
+    default:
+      series = chartInstance.addCandlestickSeries({
+        upColor: '#00c853',
+        downColor: '#ff1744',
+        borderUpColor: '#00c853',
+        borderDownColor: '#ff1744',
+        wickUpColor: '#00c853',
+        wickDownColor: '#ff1744',
+      });
+      break;
+  }
+  series.setData(candles);
+
+  const priceEl = document.getElementById('chart-price');
+  const changeEl = document.getElementById('chart-change');
+  if (priceEl && changeEl && candles.length) {
+    const last = candles[candles.length - 1];
+    const first = candles[0];
+    priceEl.textContent = fmtPrice(last.close);
+    const changeVal = last.close - first.close;
+    const changePct = (changeVal / first.close) * 100;
+    const sign = changeVal >= 0 ? '+' : '';
+    changeEl.textContent = `${sign}${changePct.toFixed(2)}%`;
+    changeEl.className = 'chart-change ' + (changeVal >= 0 ? 'up' : 'down');
+  }
+
+  const volumeSeries = chartInstance.addHistogramSeries({
+    priceFormat: { type: 'volume' },
+    priceScaleId: 'volume',
+  });
+  chartInstance.priceScale('volume').applyOptions({
+    scaleMargins: { top: 0.82, bottom: 0 },
+  });
+  volumeSeries.setData(
+    candles.map(c => ({
+      time: c.time,
+      value: c.volume,
+      color: c.close >= c.open ? 'rgba(0,200,83,0.4)' : 'rgba(255,23,68,0.4)',
+    }))
+  );
+
+  const lastCandle = lastCandles[lastCandles.length - 1];
+  if (chartType === 'line' || chartType === 'area') {
+    updateInfoBar({ value: lastCandle.close });
+  } else {
+    updateInfoBar(lastCandle);
+  }
+
+  chartInstance.subscribeCrosshairMove(param => {
+    if (param.point && param.seriesData && param.seriesData.size) {
+      const data = param.seriesData.get(series);
+      if (data) updateInfoBar(data);
+    } else if (lastCandles && lastCandles.length) {
+      const last = lastCandles[lastCandles.length - 1];
+      if (chartType === 'line' || chartType === 'area') {
+        updateInfoBar({ value: last.close });
+      } else {
+        updateInfoBar(last);
+      }
+    }
+  });
+
+  chartInstance.timeScale().fitContent();
+
+  const handleResize = () => {
+    if (chartInstance && container.clientWidth > 0) {
+      chartInstance.applyOptions({
+        width: container.clientWidth,
+        height: Math.min(Math.max(Math.round(window.innerHeight * 0.55), 280), 500),
+      });
+    }
+  };
+  chartResizeObserver = new ResizeObserver(handleResize);
+  chartResizeObserver.observe(container);
+  window.addEventListener('resize', handleResize);
+}
+
+function updateInfoBar(data) {
+  const bar = document.getElementById('chart-info-bar');
+  if (!bar || !data) return;
+  if (chartType === 'line' || chartType === 'area') {
+    const val = data.value;
+    bar.innerHTML = `
+      <div class="chart-info-item"><span class="chart-info-label">Price</span><span class="chart-info-value">${fmtChartPrice(val)}</span></div>`;
+  } else {
+    bar.innerHTML = `
+      <div class="chart-info-item"><span class="chart-info-label">O</span><span class="chart-info-value">${fmtChartPrice(data.open)}</span></div>
+      <div class="chart-info-item"><span class="chart-info-label">H</span><span class="chart-info-value">${fmtChartPrice(data.high)}</span></div>
+      <div class="chart-info-item"><span class="chart-info-label">L</span><span class="chart-info-value">${fmtChartPrice(data.low)}</span></div>
+      <div class="chart-info-item"><span class="chart-info-label">C</span><span class="chart-info-value">${fmtChartPrice(data.close)}</span></div>
+      <div class="chart-info-item"><span class="chart-info-label">Vol</span><span class="chart-info-value">${fmtChartVolume(data.volume)}</span></div>`;
+  }
+}
+
+function fmtChartPrice(v) {
+  if (v == null) return '—';
+  if (v >= 1000) return Number(v).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  if (v >= 1) return Number(v).toFixed(2);
+  return Number(v).toFixed(6);
+}
+
+function fmtChartVolume(v) {
+  if (v == null) return '—';
+  if (v >= 1e9) return (v / 1e9).toFixed(2) + 'B';
+  if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+  if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+  return v.toFixed(0);
+}
+
 function routePage() {
   const page = getHashPage();
   const param = getHashParam();
   stopAllPolls();
+  destroyChart();
 
   if (!initData) {
     render('<div class="card" style="text-align:center;padding:40px;"><div style="font-size:40px;margin-bottom:16px;">📊</div><div style="font-weight:600;font-size:18px;">BTC Monitor</div><div style="margin-top:8px;color:var(--hint);">Открой это приложение через Telegram Bot<br>👇<br>📊 BTC Dashboard</div></div>');
@@ -438,8 +852,14 @@ function routePage() {
     case 'price':
       startPoll('dashboard', renderDashboard, 30000);
       break;
+    case 'chart':
+      renderChart();
+      break;
     case 'predict':
       startPoll('predict', renderPredict, 60000);
+      break;
+    case 'chat':
+      renderChat();
       break;
     case 'news':
       startPoll('news', renderNews, 120000);

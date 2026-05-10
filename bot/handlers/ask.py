@@ -1,9 +1,8 @@
-import asyncio
-
 from aiogram.filters import Command
 from aiogram.types import Message
 
 from backend.agents import ask_agent
+from btcbot.utils import safe_gather
 from bot.state import analyzer, db, dp, fear_greed, menu_kb, _ts
 
 _user_pending: set[int] = set()
@@ -43,27 +42,27 @@ async def ask(message: Message):
         reply_markup=menu_kb,
     )
 
-    price, indicators, fng, pred = await asyncio.gather(
+    price, indicators, fng, pred = await safe_gather(
         db.get_latest_price("BTCUSD"),
         analyzer.compute_indicators(),
         fear_greed.fetch(),
         analyzer.predict(),
-        return_exceptions=True,
+        log_prefix="ask",
     )
 
     ctx_parts = [f"Сегодня {_ts()}"]
-    if price and not isinstance(price, BaseException):
+    if price:
         ctx_parts.append(f"Цена BTC: ${price:,.0f}")
-    if indicators and not isinstance(indicators, BaseException):
+    if indicators:
         if indicators.rsi is not None:
             ctx_parts.append(f"RSI(14): {indicators.rsi:.1f}")
         if indicators.ma_50 is not None:
             ctx_parts.append(f"MA50: ${indicators.ma_50:,.0f}")
         if indicators.ma_200 is not None:
             ctx_parts.append(f"MA200: ${indicators.ma_200:,.0f}")
-    if fng and not isinstance(fng, BaseException):
+    if fng:
         ctx_parts.append(f"Fear & Greed: {fng['value']}/100 ({fng['classification']})")
-    if pred and not isinstance(pred, BaseException):
+    if pred:
         ctx_parts.append(f"Сигнал: {pred.direction} (уверенность {pred.confidence:.0%})")
     ctx = " | ".join(ctx_parts)
 
