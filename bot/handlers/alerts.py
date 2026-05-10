@@ -56,7 +56,7 @@ async def alerts(message: Message):
         parts.append("── Алерты ──")
         for sub in subs:
             for at in sub["alert_types"]:
-                parts.append(f"▸ {_esc(at)} ({_esc(sub['symbol'])}) — удалить: /alert\\_remove {sub['id']}")
+                parts.append(f"▸ {_esc(at)} \\({_esc(sub['symbol'])}\\) — удалить: /alert\\_remove {sub['id']}")
         parts.append("")
 
     if price_alerts_list:
@@ -64,7 +64,7 @@ async def alerts(message: Message):
         for a in price_alerts_list:
             dir_text = {"above": "выше", "below": "ниже", "any": "пересечёт"}.get(a["direction"], "?")
             status = "✅ сработал" if a["triggered"] else "⏳ ожидание"
-            parts.append(f"▸ ${a['target_price']:,.0f} ({_esc(dir_text)}) — {_esc(status)}")
+            parts.append(f"▸ ${a['target_price']:,.0f} \\({_esc(dir_text)}\\) — {_esc(status)}")
             if not a["triggered"]:
                 parts.append(f"  удалить: /alert\\_remove {a['id']}")
 
