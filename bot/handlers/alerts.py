@@ -45,7 +45,7 @@ async def alerts(message: Message):
         )
         return
 
-    parts = [f"🔔 *BTC Monitor* · Подписки*", "", _ts(), ""]
+    parts = [f"🔔 *BTC Monitor* · Подписки", "", _ts(), ""]
 
     if subs:
         parts.append("── Алерты ──")
