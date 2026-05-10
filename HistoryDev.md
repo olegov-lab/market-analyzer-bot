@@ -1920,4 +1920,71 @@ bc9185b Add AI Chat /ask with Market-Brain agent
 b3b86e6 Fix P0/P1: PriceBuffer data loss, return_exceptions logging, SQL injection, duplicate route
   Новый файл: btcbot/utils.py (safe_gather helper)
   Изменено: btcbot/collector.py, backend/api.py, btcbot/db.py, bot/handlers/ask.py, HistoryDev.md
+
+---
+
+## Сессия 35 — Реструктуризация Mini App: 4 вкладки с группировкой
+
+### Дата
+10 May 2026
+
+### Участники
+- **Sigma-Architect** (GLM-5.1) — архитектура роутинга, компонентная модель
+- **Rapid-Dev** (DeepSeek V4 Pro) — рефакторинг app.js
+- **UI Designer** (Kimi K2.6) — pill sub-tabs, bottom bar 4 шт
+- **UX Designer** (Kimi K2.6) — haptic, safe area, мгновенное переключение
+
+### Что сделано
+
+**Новая навигация — 4 вкладки вместо 7:**
+```
+📊 Индикаторы | 🧠 AI анализ | 🎮 Мини App | 📰 Новости
+```
+
+**Hash-схема:**
+- `#indicators[/price|/predict|/alerts]` — Индикаторы (дефолт price)
+- `#chat` — AI анализ
+- `#miniapp[/lessons[/{id}]|/games]` — Мини App (дефолт lessons)
+- `#news[/general|/timothy]` — Новости (дефолт general)
+
+**Каждая вкладка с sub-tabs (pill-shaped):**
+- **Индикаторы** — график (всегда виден) + pill tabs [💰 Цена, 🔮 Прогноз, 🔔 Подписки]
+- **AI анализ** — без изменений (полноэкранный чат)
+- **Мини App** — pill tabs [📖 Обучение, 🎮 Игры]
+- **Новости** — pill tabs [📰 Общие, 🐦 Timothy Peterson] (через OpenCode агента)
+
+### Технические изменения
+
+**`miniapp/app.js` +166/-73 строк:**
+- `parseHash()` — единый парсер hash вместо `getHashPage()` + `getHashParam()`
+- `navigate(page, sub)` — поддержка вложенных hash
+- `renderSub(html)` — хелпер для рендера в `#sub-content` (не разрушает layout)
+- `renderIndicatorsPage(sub)` — каркас: chart + sub-tabs + sub-content
+- `renderMiniAppPage(sub, param)` — каркас: sub-tabs + sub-content
+- `renderNewsPage(sub)` — каркас: sub-tabs + sub-content
+- `renderGames()` — заглушка для будущих игр
+- `renderDashboard/renderPredict/renderAlerts/renderNews/renderLearnList/renderLesson` — переведены на `renderSub()`
+- `renderChart()` — рендер в `#indicators-chart`, не пересоздаётся при смене sub-tab
+- Poll: `dashboard` → `indicators_price`, `predict` → `indicators_predict`
+- `showLoading`/`showError` — больше не используются (кроме определения)
+- Old `getHashPage`/`getHashParam` — удалены
+
+**`miniapp/index.html`:**
+- 4 кнопки bottom nav вместо 7
+
+**`miniapp/styles.css` +16 строк:**
+- `.sub-tabs` — flex-row, pill tabs, горизонтальный скролл, без scrollbar
+- `.sub-tab` — pill-стиль (активная — button color)
+- `#sub-content` — min-height 100px
+
+### Следующие шаги
+- `#news/timothy` — бэкенд через OpenCode агента для Timothy Peterson Twitter
+- `#miniapp/games` — крипто-квизы
+- Чистка мёртвого кода (`showLoading`, `showError`)
+
+### Коммит
+```
+39001ed Restructure Mini App nav: 4 tabs with grouped sub-tabs
+  Изменено: miniapp/app.js, miniapp/index.html, miniapp/styles.css
+```
 ```
