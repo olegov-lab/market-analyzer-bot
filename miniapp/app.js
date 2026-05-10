@@ -174,6 +174,11 @@ async function renderDashboard() {
       const rsiColor = ind.rsi > 70 ? '🔴' : ind.rsi < 30 ? '🟢' : '⚪';
       html += '<div class="hero-rsi">RSI(14) ' + rsiColor + ' ' + ind.rsi.toFixed(1) + '</div>';
     }
+    if (data.fear_greed) {
+      const fg = data.fear_greed;
+      const fgEmoji = fg.value >= 50 ? '🟢' : '🔴';
+      html += '<div class="hero-rsi">' + fgEmoji + ' Fear & Greed: ' + fg.value + '/100 — ' + fg.classification + '</div>';
+    }
     html += '</div>';
 
     if (pred) {

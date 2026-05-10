@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from aiogram.filters import Command
 from aiogram.types import Message
 
-from bot.state import analyzer, db, dp, menu_kb, _ts, _rsi_bar
+from bot.state import analyzer, db, dp, fear_greed, menu_kb, _ts, _rsi_bar
 
 
 async def _estimate_hours(db, symbol: str) -> float:
@@ -118,6 +118,13 @@ async def btc(message: Message):
             lines.append("")
             lines.append("── On-chain ──")
             lines.append("⏳ данные появятся после настройки Glassnode API")
+
+    fng = await fear_greed.fetch()
+    if fng:
+        lines.append("")
+        lines.append("── Рынок ──")
+        fg_emoji = "🟢" if fng["value"] >= 50 else "🔴"
+        lines.append(f"▸ **Fear & Greed:** {fg_emoji} {fng['value']}/100 — {fng['classification']}")
 
     lines.append("")
     lines.append("♻️ Обновление: реальное время")

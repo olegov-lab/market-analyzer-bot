@@ -15,6 +15,7 @@ from slowapi.util import get_remote_address
 from btcbot.analyzer import Analyzer
 from btcbot.config import settings
 from btcbot.db import Database
+from btcbot.fear_greed import FearGreedIndex
 from btcbot.lessons import LESSONS
 from btcbot.news import NEWS_CACHE_TTL, build_sentiment_summary, fetch_news
 from backend.miniapp_auth import verify_telegram_init_data
@@ -28,6 +29,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 db = Database(settings.database_url)
 redis_client: Optional[aioredis.Redis] = None
 analyzer: Optional[Analyzer] = None
+fear_greed: Optional[FearGreedIndex] = None
 
 CORS_ORIGIN = settings.miniapp_url_normalized.rstrip("/")
 app.add_middleware(
@@ -48,10 +50,11 @@ async def _get_user_id(request: Request) -> int:
 
 @app.on_event("startup")
 async def startup():
-    global redis_client, analyzer
+    global redis_client, analyzer, fear_greed
     await db.connect()
     redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
     analyzer = Analyzer(db, redis_client)
+    fear_greed = FearGreedIndex(redis_client)
     asyncio.create_task(analyzer.warmup_cache())
 
 
@@ -147,10 +150,11 @@ async def subscribe(request: Request):
 @limiter.limit("30/minute")
 async def miniapp_dashboard(request: Request):
     user_id = await _get_user_id(request)
-    price, indicators, pred = await asyncio.gather(
+    price, indicators, pred, fng = await asyncio.gather(
         db.get_latest_price("BTCUSD"),
         analyzer.compute_indicators(),
         analyzer.predict(),
+        fear_greed.fetch(),
     )
     prediction_summary = None
     if pred:
@@ -164,8 +168,19 @@ async def miniapp_dashboard(request: Request):
         "price": price,
         "indicators": indicators.model_dump() if indicators else None,
         "prediction_summary": prediction_summary,
+        "fear_greed": fng,
         "time": datetime.now(timezone.utc).isoformat(),
     }
+
+
+@app.get("/miniapp/fear-greed")
+@limiter.limit("30/minute")
+async def miniapp_fear_greed(request: Request):
+    user_id = await _get_user_id(request)
+    fng = await fear_greed.fetch()
+    if not fng:
+        raise HTTPException(503, "Fear & Greed data unavailable")
+    return fng
 
 
 @app.get("/miniapp/predict")

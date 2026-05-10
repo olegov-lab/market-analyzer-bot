@@ -7,12 +7,14 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from btcbot.analyzer import Analyzer
 from btcbot.config import settings
 from btcbot.db import Database
+from btcbot.fear_greed import FearGreedIndex
 
 bot = Bot(token=settings.telegram_bot_token)
 dp = Dispatcher()
 db = Database(settings.database_url)
 redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
 analyzer = Analyzer(db, redis_client)
+fear_greed = FearGreedIndex(redis_client)
 
 menu_kb = ReplyKeyboardMarkup(
     keyboard=[
