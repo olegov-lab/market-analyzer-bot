@@ -156,7 +156,7 @@ function stopAllPolls() {
 
 async function renderDashboard() {
   tgBackButton('hide');
-  render('<div class="skeleton skeleton-hero"></div><div class="skeleton skeleton-block"></div><div class="skeleton skeleton-block"></div>');
+  renderSub('<div class="skeleton skeleton-hero"></div><div class="skeleton skeleton-block"></div><div class="skeleton skeleton-block"></div>');
   try {
     const data = await apiCall('/miniapp/dashboard');
     const p = data.price;
