@@ -128,3 +128,45 @@ class AlertManager:
             )
         except Exception as e:
             logger.error("Failed to send alert to {}: {}", user_id, e)
+
+    async def check_price_alerts(self) -> None:
+        price = await self.db.get_latest_price("BTCUSD")
+        if not price:
+            return
+
+        alerts = await self.db.get_active_price_alerts()
+        if not alerts:
+            return
+
+        for alert in alerts:
+            should_trigger = False
+            direction = alert["direction"]
+            if direction == "above" and price >= alert["target_price"]:
+                should_trigger = True
+            elif direction == "below" and price <= alert["target_price"]:
+                should_trigger = True
+            elif direction == "any":
+                should_trigger = True
+
+            if should_trigger:
+                await self._send_price_alert(alert, price)
+
+    async def _send_price_alert(self, alert: dict, current_price: float) -> None:
+        user_id = alert["user_id"]
+        target = alert["target_price"]
+        direction = alert["direction"]
+        dir_emoji = "📈" if direction == "above" else "📉"
+        dir_text = "выше" if direction == "above" else "ниже"
+        direction_word = "пересёк" if direction == "any" else dir_text
+
+        msg = (
+            f"🚨 *Ценовой сигнал*\n"
+            f"{dir_emoji} BTC {direction_word} ${target:,.0f}\n"
+            f"💰 Текущая цена: ${current_price:,.0f}"
+        )
+        try:
+            await self.bot.send_message(chat_id=user_id, text=msg, parse_mode="Markdown")
+            await self.db.mark_price_alert_triggered(alert["id"])
+            logger.info("Price alert {} sent to user {}", alert["id"], user_id)
+        except Exception as e:
+            logger.error("Failed to send price alert {}: {}", alert["id"], e)

@@ -55,6 +55,12 @@ class Scheduler:
             id="prediction_1w",
             replace_existing=True,
         )
+        self.scheduler.add_job(
+            self._check_price_alerts,
+            CronTrigger(minute="*/5"),
+            id="price_alerts",
+            replace_existing=True,
+        )
         self.scheduler.start()
         logger.info("Scheduler started")
 
@@ -84,6 +90,9 @@ class Scheduler:
             logger.info("Model retraining completed")
         except Exception as e:
             logger.error("Model retraining failed: {}", e)
+
+    async def _check_price_alerts(self) -> None:
+        await self.alert_manager.check_price_alerts()
 
     async def _make_prediction_1w(self) -> None:
         logger.info("Computing weekly on-chain prediction")

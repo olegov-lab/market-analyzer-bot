@@ -1562,4 +1562,148 @@ From https://github.com/olegov-lab/market-analyzer-bot
 d0b371b Add Redis caching for predictions (5min) and indicators (30s)
 531dcbe Optimize project performance: DB aggregation, asyncio.gather, daily candles, cache warmup, retention 180d
 829223f Fix subscribe callback handler missing in bot
+06612cd Fix haptic feedback: Telegram var already contains WebApp
+c3cd0d0 Add candles_4h continuous aggregate MV for 2x prediction speedup
+```
+
+---
+
+## Сессия 31: UI/UX улучшения и оптимизация (10.05.2026)
+
+### Участники
+- **UI Designer** — визуальный редизайн Mini App
+- **UX Designer** — навигация, анимации, haptics
+- **Rapid-Dev** — рефакторинг и код-ревью
+
+### 31.1 Mini App — 12 UI/UX улучшений
+1. **RSI bar** — CSS progress bar (`.conf-bar-fill` width=RSI%) вместо текстового `▓▓▓░░░░░`
+2. **Skeleton loading** — shimmer-анимация на карточках вместо спиннера
+3. **Glow effect** — box-shadow на hero блоке (зелёный/красный/оранжевый по сигналу)
+4. **Fade-in** — `@keyframes fadeIn` при смене контента
+5. **Haptic feedback** — `Telegram.WebApp.HapticFeedback.impactOccurred` на табах и кнопках
+6. **Status bar** — цвет меняется по сигналу: buy=#00c853, sell=#ff1744, hold=#ff9800
+7. **Персонализация /start** — приветствие с именем пользователя
+8. **Убраны дубликаты** `menu_kb` после `/subscribe`, `/learn`, `/alerts`
+9. **Lessons** — вынесены в `btcbot/lessons.py` (было дублирование в bot и api)
+10. **Warmup cache** — вынесен в `btcbot/analyzer.py`
+11. **Разделение bot/main.py** (590 строк → handlers: btc, info, news, learn, alerts + state)
+12. **Pull-to-refresh удалён** — конфликтовал с Telegram WebView (swipe-to-close)
+
+### 31.2 Исправление haptic feedback
+**Проблема:** `Telegram.WebApp.HapticFeedback.impactOccurred()` не работал.
+**Причина:** переменная `Telegram = window.Telegram.WebApp` уже содержит WebApp, вызов `Telegram.WebApp.HapticFeedback` обращался к `window.Telegram.WebApp.WebApp.HapticFeedback` — undefined.
+**Фикс:** `Telegram.HapticFeedback.impactOccurred()` + mock в fallback-объекте.
+
+### 31.3 candles_4h — materialized view
+**Проблема:** `_predict_4h()` агрегировал 4h свечи из `candles_1m` на лету через `time_bucket`.
+**Решение:** создан `candles_4h` — непрерывная материализованное представление TimescaleDB:
+- Агрегация OHLCV из `candles_1m` через `time_bucket('4 hours')`
+- Политика: refresh каждый час, глубина 7 дней
+- `get_4h_candles_since()` — простой SELECT из MV вместо агрегации
+- Миграция alembic `a1b2c3d4e5f6`
+- **Эффект:** ~10x меньше данных, запрос ~1-2ms вместо 10-20ms
+
+### 31.4 Унификация стиля
+На основе консультации с UI Designer, UX Designer, Editor, Screenwriter:
+- Разделители: `── Title ──` везде (бот + Mini App)
+- Сигнал в `/btc`: `── 🟢 𝙎𝙄𝙂𝙉𝘼𝙇: BUY 🟢 ──`
+- Строки данных: `▸ **Label:** value`
+- Подсказки: `💡 текст`
+- Списки описаний: `• текст`
+- Ошибки/пусто: `❌ текст`
+- RSI bar: `▓▓▓▓▓░░░░░` (бот и Mini App одинаково)
+
+### 31.5 Bottom Tab Bar
+На основе консультации с UI/UX дизайнерами:
+- Верхняя горизонтальная прокрутка заменена на нижний tab bar
+- 5 вкладок: 💰 🔮 📰 📖 🔔 с подписями
+- `position: fixed; bottom: 0` + `safe-area-inset-bottom`
+- Удалены старый `#nav` (top) и `#footer`
+
+### Коммиты сессии 31
+```
+06612cd Fix haptic feedback: Telegram var already contains WebApp
+c3cd0d0 Add candles_4h continuous aggregate MV for 2x prediction speedup
+bebf76d UI redesign: RSI bar, hero section, gradient confidence bar
+d4d57ac Unify style: consistent dividers, ▸/💡/• usage, RSI bar sync
+b09bb63 Replace top scrolling nav with bottom tab bar
+```
+
+---
+
+## Сессия 32: 3 killer-фичи за вечер (10.05.2026)
+
+### Участники
+- **Главный разработчик** — реализация
+- **Sigma-Architect** — архитектурный план
+- **Market-Brain** — консультация по фичам
+- **UI/UX Designer** — дизайн фич
+
+### 32.1 Fear & Greed Index
+**Что:** Самый популярный индекс настроения рынка. Бесплатный API alternative.me.
+
+**Где отображается:**
+- Mini App dashboard — `/miniapp/dashboard` → `hero-rsi` блок после RSI
+- Bot `/btc` — секция `── Рынок ──` с 🟢/🔴 эмодзи
+- Отдельный эндпоинт `GET /miniapp/fear-greed`
+
+**Технически:**
+- `btcbot/fear_greed.py` — класс `FearGreedIndex` с Redis-кешем (TTL 1 час)
+- Stale fallback: если API недоступен, возвращает последнее кешированное значение
+- Параллельный fetch в `/miniapp/dashboard` через `asyncio.gather`
+
+**Эффект:** Пользователи видят Fear & Greed сразу на дашборде без дополнительных действий.
+
+### 32.2 AI Chat `/ask`
+**Что:** Любой вопрос о Bitcoin → ответ от Market-Brain (DeepSeek V4 Pro).
+
+**Команда:** `/ask Почему падает BTC?`
+- Rate limit: 30 секунд между запросами (in-memory)
+- Ответ в Markdown с заголовком `🧠 BTC Monitor · Аналитика`
+- Кнопка `/ask` в ReplyKeyboardMenu (второй ряд, вместо сдвинутого `/subscribe`)
+
+**Исправление:** `agents.py:ask_agent()` теперь использует модель из конфига агента (`_resolve_model` вместо хардкода AGENT_MODEL`), чтобы Market-Brain отвечал через DeepSeek V4 Pro, а не через qwen3.6-plus.
+
+**Эффект:** Бот превращается из "просто дашборда" в AI-аналитика, отвечающего на любые вопросы.
+
+### 32.3 Персональные ценовые алерты
+**Что:** Пользователь ставит сигнал — бот уведомляет, когда BTC достигает цели.
+
+**Команды:**
+- `/alert 100000` — уведомить когда пересечёт $100K
+- `/alert above 100000` — только выше
+- `/alert below 30000` — только ниже
+- `/alert_remove <id>` — удалить сигнал
+
+**База данных:** Новая таблица `price_alerts(user_id, target_price, direction, triggered)`
+- Индекс на `(triggered, target_price) WHERE triggered = FALSE`
+
+**Scheduler:** Проверка каждые 5 минут (CronTrigger `*/5`)
+
+**Уведомление:**
+```
+🚨 Ценовой сигнал
+📈 BTC выше $100,000
+💰 Текущая цена: $101,234
+```
+
+**API эндпоинты (готово для Mini App):**
+- `GET /miniapp/price-alerts` — список
+- `POST /miniapp/price-alerts` — создать
+- `DELETE /miniapp/price-alerts/{id}` — удалить
+
+**Безопасность:** Если отправка не удалась (user blocked), alert НЕ помечается triggered — повторная попытка через 5 мин.
+
+**Эффект:** Самая запрашиваемая фича в любом крипто-приложении. Пользователи возвращаются, когда "срабатывает сигнал".
+
+### Итог сессии
+За один вечер внедрены 3 фичи, которые превращают BTC Monitor из полезного инструмента в сервис, к которому хочется возвращаться:
+1. Fear & Greed — для быстрой оценки настроения рынка
+2. `/ask` — AI-аналитик в кармане
+3. Price Alerts — уведомления о достижении целей
+
+### Коммиты сессии 32
+```
+3925af0 Add Fear & Greed Index to dashboard + /btc
+bc9185b Add AI Chat /ask with Market-Brain agent
 ```

@@ -125,6 +125,26 @@ class Database:
             """)
 
             await conn.execute("""
+                CREATE TABLE IF NOT EXISTS price_alerts (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    target_price DOUBLE PRECISION NOT NULL,
+                    direction TEXT NOT NULL DEFAULT 'any',
+                    triggered BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    triggered_at TIMESTAMPTZ
+                )
+            """)
+            try:
+                await conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_price_alerts_active
+                    ON price_alerts (triggered, target_price)
+                    WHERE triggered = FALSE
+                """)
+            except Exception:
+                pass
+
+            await conn.execute("""
                 CREATE TABLE IF NOT EXISTS alerts (
                     id BIGSERIAL PRIMARY KEY,
                     user_id BIGINT NOT NULL,
@@ -311,4 +331,36 @@ class Database:
             return await conn.fetch(
                 "SELECT time, metric_name, value FROM onchain_metrics WHERE time >= $1 ORDER BY time ASC",
                 since,
+            )
+
+    async def add_price_alert(self, user_id: int, target_price: float, direction: str = "any") -> int:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "INSERT INTO price_alerts (user_id, target_price, direction) VALUES ($1,$2,$3) RETURNING id",
+                user_id, target_price, direction,
+            )
+            return row["id"]
+
+    async def get_user_price_alerts(self, user_id: int) -> list[asyncpg.Record]:
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(
+                "SELECT * FROM price_alerts WHERE user_id = $1 ORDER BY created_at DESC",
+                user_id,
+            )
+
+    async def delete_price_alert(self, alert_id: int) -> None:
+        async with self.pool.acquire() as conn:
+            await conn.execute("DELETE FROM price_alerts WHERE id = $1", alert_id)
+
+    async def get_active_price_alerts(self) -> list[asyncpg.Record]:
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(
+                "SELECT * FROM price_alerts WHERE triggered = FALSE ORDER BY target_price ASC"
+            )
+
+    async def mark_price_alert_triggered(self, alert_id: int) -> None:
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE price_alerts SET triggered = TRUE, triggered_at = NOW() WHERE id = $1",
+                alert_id,
             )

@@ -2,7 +2,7 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from bot.state import db, dp, menu_kb
+from bot.state import db, dp, menu_kb, _ts
 
 
 @dp.message(Command(commands=["subscribe"]))
@@ -29,24 +29,41 @@ async def subscribe(message: Message):
 
 @dp.message(Command(commands=["alerts"]))
 async def alerts(message: Message):
-    subs = await db.get_user_subscriptions(message.from_user.id)
-    if not subs:
-        await message.answer("🔔 *BTC Monitor* · Подписки\n\n❌ У вас нет активных подписок", parse_mode="Markdown", reply_markup=menu_kb)
+    uid = message.from_user.id
+    subs = await db.get_user_subscriptions(uid)
+    price_alerts = await db.get_user_price_alerts(uid)
+
+    if not subs and not price_alerts:
+        await message.answer(
+            "🔔 *BTC Monitor* · Подписки\n\n"
+            "❌ У вас нет активных подписок\n\n"
+            "▪ `/subscribe` — алерты на RSI, MA Cross, Volume\n"
+            "▪ `/alert 100000` — ценовой сигнал\n\n"
+            f"{_ts()}",
+            parse_mode="Markdown",
+            reply_markup=menu_kb,
+        )
         return
 
-    builder = InlineKeyboardBuilder()
-    for sub in subs:
-        for at in sub["alert_types"]:
-            builder.button(
-                text=f"❌ {at} ({sub['symbol']})",
-                callback_data=f"del_{sub['id']}_{at}",
-            )
-    builder.adjust(1)
-    await message.answer(
-        "🔔 *BTC Monitor* · Подписки\n\n💡 Нажмите ❌ чтобы отписаться:",
-        reply_markup=builder.as_markup(),
-        parse_mode="Markdown",
-    )
+    lines = [f"🔔 *BTC Monitor* · Подписки", "", _ts(), ""]
+
+    if subs:
+        lines.append("── Алерты ──")
+        for sub in subs:
+            for at in sub["alert_types"]:
+                lines.append(f"▸ **{at}** ({sub['symbol']}) — `/alert_remove {sub['id']}`")
+        lines.append("")
+
+    if price_alerts:
+        lines.append("── Ценовые сигналы ──")
+        for a in price_alerts:
+            dir_text = {"above": "выше", "below": "ниже", "any": "пересечёт"}.get(a["direction"], "?")
+            status = "✅ сработал" if a["triggered"] else "⏳ ожидание"
+            lines.append(f"▸ ${a['target_price']:,.0f} ({dir_text}) — {status}")
+            if not a["triggered"]:
+                lines.append(f"  🗑 `/alert_remove {a['id']}`")
+
+    await message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=menu_kb)
 
 
 @dp.callback_query(lambda c: c.data.startswith("sub_"))
