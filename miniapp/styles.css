@@ -66,6 +66,37 @@ body {
 
 #content { min-height: 200px; }
 
+/* Sub-tabs (pill tabs) */
+.sub-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.sub-tabs::-webkit-scrollbar { display: none; }
+.sub-tab {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: transparent;
+  color: var(--hint);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+  -webkit-tap-highlight-color: transparent;
+}
+.sub-tab.active {
+  background: var(--btn);
+  color: var(--btn-text);
+  border-color: var(--btn);
+}
+.sub-tab:active { opacity: 0.7; }
+
+#sub-content { min-height: 100px; }
+
 /* Cards */
 .card {
   background: var(--section-bg);

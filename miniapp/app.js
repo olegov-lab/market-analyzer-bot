@@ -68,6 +68,11 @@ function render(html) {
   }
 }
 
+function renderSub(html) {
+  const el = document.getElementById('sub-content');
+  if (el) el.innerHTML = html;
+}
+
 function tgBackButton(action) {
   if (!Telegram) return;
   if (action === 'show') Telegram.BackButton.show();
@@ -92,17 +97,25 @@ function haptic(style) {
   try { Telegram.HapticFeedback.impactOccurred(style || 'light'); } catch(e) {}
 }
 
-function navigate(page) {
+function navigate(page, sub) {
   haptic('light');
-  if (page.startsWith('lesson_')) {
-    window.location.hash = '#learn/' + page.split('_')[1];
-    return;
-  }
-  window.location.hash = page === 'price' ? '' : '#' + page;
+  sub = sub || '';
+  const map = {
+    'indicators': sub ? '#indicators/' + sub : '#indicators/price',
+    'miniapp': sub ? '#miniapp/' + sub : '#miniapp/lessons',
+    'news': sub ? '#news/' + sub : '#news/general',
+  };
+  window.location.hash = map[page] || '#' + page;
 }
 
 document.querySelectorAll('.nav-btn').forEach(btn => {
-  btn.addEventListener('click', () => navigate(btn.dataset.page));
+  btn.addEventListener('click', () => {
+    const page = btn.dataset.page;
+    if (page === 'indicators') navigate('indicators', 'price');
+    else if (page === 'miniapp') navigate('miniapp', 'lessons');
+    else if (page === 'news') navigate('news', 'general');
+    else navigate(page);
+  });
 });
 
 function setActiveNav(page) {
@@ -111,17 +124,17 @@ function setActiveNav(page) {
   if (btn) btn.classList.add('active');
 }
 
-function getHashPage() {
-  const hash = window.location.hash.slice(1);
-  if (!hash || hash.startsWith('tgWebAppData=')) return 'price';
-  if (hash.startsWith('learn/')) return 'learn';
-  return hash;
-}
-
-function getHashParam() {
-  const hash = window.location.hash.slice(1);
-  if (hash.startsWith('learn/')) return parseInt(hash.split('/')[1], 10);
-  return null;
+function parseHash() {
+  let h = window.location.hash.slice(1);
+  if (!h || h.startsWith('tgWebAppData=')) return { page: 'indicators', sub: 'price', param: null };
+  const parts = h.split('/');
+  if (parts[0] === 'indicators' || parts[0] === '' || !['chat','miniapp','news'].includes(parts[0])) {
+    return { page: 'indicators', sub: parts[1] || 'price', param: parts[2] || null };
+  }
+  if (parts[0] === 'chat') return { page: 'chat', sub: null, param: null };
+  if (parts[0] === 'miniapp') return { page: 'miniapp', sub: parts[1] || 'lessons', param: parts[2] || null };
+  if (parts[0] === 'news') return { page: 'news', sub: parts[1] || 'general', param: null };
+  return { page: 'indicators', sub: 'price', param: null };
 }
 
 function startPoll(name, fn, interval) {
@@ -142,7 +155,6 @@ function stopAllPolls() {
 }
 
 async function renderDashboard() {
-  setActiveNav('price');
   tgBackButton('hide');
   render('<div class="skeleton skeleton-hero"></div><div class="skeleton skeleton-block"></div><div class="skeleton skeleton-block"></div>');
   try {
@@ -237,16 +249,15 @@ async function renderDashboard() {
     }
 
     html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;">♻️ Обновление каждые 30с</div>';
-    render(html);
+    renderSub(html);
   } catch (e) {
-    showError('Не удалось загрузить данные: ' + e.message);
+    renderSub('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + escapeHtml(e.message) + '</div></div>');
   }
 }
 
 async function renderPredict() {
-  setActiveNav('predict');
   tgBackButton('hide');
-  showLoading();
+  renderSub('<div class="card"><div class="spinner"></div></div>');
   try {
     const [pred, vol] = await Promise.all([
       apiCall('/miniapp/predict'),
@@ -314,16 +325,15 @@ async function renderPredict() {
       html = '<div class="card"><div class="card-title">Прогноз</div>⏳ Собираем историю для прогноза (~48ч)</div>';
     }
 
-    render(html);
+    renderSub(html);
   } catch (e) {
-    showError('Не удалось загрузить прогноз: ' + e.message);
+    renderSub('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + escapeHtml(e.message) + '</div></div>');
   }
 }
 
 async function renderNews() {
-  setActiveNav('news');
   tgBackButton('hide');
-  showLoading();
+  renderSub('<div class="card"><div class="spinner"></div></div>');
   try {
     const data = await apiCall('/miniapp/news');
     articles = data.articles || [];
@@ -350,48 +360,47 @@ async function renderNews() {
     }
 
     html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;">♻️ Новости — 5 мин</div>';
-    render(html);
+    renderSub(html);
   } catch (e) {
-    showError('Не удалось загрузить новости: ' + e.message);
+    renderSub('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + escapeHtml(e.message) + '</div></div>');
   }
 }
 
 async function renderLearnList() {
-  setActiveNav('learn');
   tgBackButton('hide');
-  showLoading();
+  renderSub('<div class="card"><div class="spinner"></div></div>');
   try {
     const data = await apiCall('/miniapp/lessons');
     lessons = data;
     let html = '<div class="card"><div class="card-title">Азбука крипты</div><p style="margin-bottom:12px;color:var(--hint);">10 коротких уроков для начинающих</p>';
     for (const l of lessons) {
-      html += '<a class="lesson-card" href="#learn/' + l.id + '">' + l.id + '. ' + escapeHtml(l.title) + '</a>';
+      html += '<a class="lesson-card" href="#miniapp/lessons/' + l.id + '">' + l.id + '. ' + escapeHtml(l.title) + '</a>';
     }
     html += '</div>';
-    render(html);
+    renderSub(html);
   } catch (e) {
-    showError('Не удалось загрузить уроки: ' + e.message);
+    renderSub('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + escapeHtml(e.message) + '</div></div>');
   }
 }
 
 async function renderLesson(id) {
-  showLoading();
+  renderSub('<div class="card"><div class="spinner"></div></div>');
   tgBackButton('show');
-  tgBackButton('onClick', () => { window.location.hash = '#learn'; });
+  tgBackButton('onClick', () => { window.location.hash = '#miniapp/lessons'; });
 
   try {
     const lesson = await apiCall('/miniapp/lessons/' + id);
     let html = '<div class="card"><div class="card-title">Урок ' + lesson.id + '</div><div class="lesson-text">' + escapeHtml(lesson.text || '') + '</div><div class="lesson-nav">';
 
-    if (id > 1) html += '<button onclick="window.location.hash=\'#learn/' + (id-1) + '\'">◀️ Назад</button>';
+    if (id > 1) html += '<button onclick="window.location.hash=\'#miniapp/lessons/' + (id-1) + '\'">◀️ Назад</button>';
     else html += '<div></div>';
-    if (id < lessons.length) html += '<button onclick="window.location.hash=\'#learn/' + (id+1) + '\'">▶️ Вперёд</button>';
+    if (id < lessons.length) html += '<button onclick="window.location.hash=\'#miniapp/lessons/' + (id+1) + '\'">▶️ Вперёд</button>';
     else html += '<div></div>';
     html += '</div></div>';
 
-    render(html);
+    renderSub(html);
   } catch (e) {
-    showError('Не удалось загрузить урок: ' + e.message);
+    renderSub('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + escapeHtml(e.message) + '</div></div>');
   }
 }
 
@@ -497,9 +506,8 @@ async function sendMessage(text) {
 }
 
 async function renderAlerts() {
-  setActiveNav('alerts');
   tgBackButton('hide');
-  showLoading();
+  renderSub('<div class="card"><div class="spinner"></div></div>');
   try {
     const subs = await apiCall('/miniapp/subscriptions');
     let html = '<div class="card"><div class="card-title">Мои подписки</div>';
@@ -521,7 +529,7 @@ async function renderAlerts() {
     }
     html += '</div>';
 
-    render(html);
+    renderSub(html);
 
     document.querySelectorAll('.btn-unsub').forEach(btn => {
       btn.addEventListener('click', async () => {
@@ -556,7 +564,7 @@ async function renderAlerts() {
       });
     });
   } catch (e) {
-    showError('Не удалось загрузить подписки: ' + e.message);
+    renderSub('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + escapeHtml(e.message) + '</div></div>');
   }
 }
 
@@ -581,11 +589,13 @@ function destroyChart() {
 }
 
 async function renderChart() {
-  setActiveNav('chart');
   tgBackButton('hide');
   stopAllPolls();
 
-  render(`
+  const chartDiv = document.getElementById('indicators-chart');
+  if (!chartDiv) return;
+
+  chartDiv.innerHTML = `
     <div class="chart-header">
       <div class="chart-header-main">
         <div class="chart-price" id="chart-price">—</div>
@@ -610,7 +620,7 @@ async function renderChart() {
       <div class="loading" style="padding:20px;"><div class="spinner"></div></div>
     </div>
     <div class="chart-info-bar" id="chart-info-bar"></div>
-  `);
+  `;
 
   document.querySelectorAll('[data-tf]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -837,11 +847,72 @@ function fmtChartVolume(v) {
   return v.toFixed(0);
 }
 
+// ─── Indicators Page ────────────────────────────────────────────────
+function renderIndicatorsPage(sub) {
+  tgBackButton('hide');
+  render(`
+    <div id="indicators-chart"></div>
+    <div class="sub-tabs">
+      <button class="sub-tab${sub === 'price' ? ' active' : ''}" data-sub="price" onclick="navigate('indicators','price')">💰 Цена</button>
+      <button class="sub-tab${sub === 'predict' ? ' active' : ''}" data-sub="predict" onclick="navigate('indicators','predict')">🔮 Прогноз</button>
+      <button class="sub-tab${sub === 'alerts' ? ' active' : ''}" data-sub="alerts" onclick="navigate('indicators','alerts')">🔔 Подписки</button>
+    </div>
+    <div id="sub-content"></div>
+  `);
+  if (sub === 'predict') startPoll('indicators_predict', renderPredict, 60000);
+  else if (sub === 'alerts') renderAlerts();
+  else startPoll('indicators_price', renderDashboard, 30000);
+  setTimeout(() => renderChart(), 50);
+}
+
+// ─── Mini App Page ──────────────────────────────────────────────────
+function renderMiniAppPage(sub, param) {
+  tgBackButton('hide');
+  render(`
+    <div class="sub-tabs">
+      <button class="sub-tab${sub === 'lessons' ? ' active' : ''}" data-sub="lessons" onclick="navigate('miniapp','lessons')">📖 Обучение</button>
+      <button class="sub-tab${sub === 'games' ? ' active' : ''}" data-sub="games" onclick="navigate('miniapp','games')">🎮 Игры</button>
+    </div>
+    <div id="sub-content"></div>
+  `);
+  if (sub === 'games') renderGames();
+  else if (sub === 'lessons' && param) renderLesson(param);
+  else renderLearnList();
+}
+
+// ─── News Page ──────────────────────────────────────────────────────
+function renderNewsPage(sub) {
+  tgBackButton('hide');
+  render(`
+    <div class="sub-tabs">
+      <button class="sub-tab${sub === 'general' ? ' active' : ''}" data-sub="general" onclick="navigate('news','general')">📰 Общие</button>
+      <button class="sub-tab${sub === 'timothy' ? ' active' : ''}" data-sub="timothy" onclick="navigate('news','timothy')">🐦 Timothy</button>
+    </div>
+    <div id="sub-content"></div>
+  `);
+  if (sub === 'timothy') {
+    renderSub('<div class="card"><p style="color:var(--hint);">⏳ Источник настраивается через OpenCode агента...</p></div>');
+  } else {
+    startPoll('news', renderNews, 120000);
+  }
+}
+
+// ─── Games Page ─────────────────────────────────────────────────────
+async function renderGames() {
+  tgBackButton('show');
+  tgBackButton('onClick', () => { window.location.hash = '#miniapp/lessons'; });
+  renderSub(`
+    <div class="card">
+      <div class="card-title">🎮 Игры</div>
+      <p style="color:var(--hint);margin-bottom:12px;">Скоро здесь появятся крипто-квизы и тренировки.</p>
+      <div style="text-align:center;padding:20px;font-size:48px;">🎲</div>
+    </div>
+  `);
+}
+
 function routePage() {
-  const page = getHashPage();
-  const param = getHashParam();
+  const { page, sub, param } = parseHash();
   stopAllPolls();
-  destroyChart();
 
   if (!initData) {
     render('<div class="card" style="text-align:center;padding:40px;"><div style="font-size:40px;margin-bottom:16px;">📊</div><div style="font-weight:600;font-size:18px;">BTC Monitor</div><div style="margin-top:8px;color:var(--hint);">Открой это приложение через Telegram Bot<br>👇<br>📊 BTC Dashboard</div></div>');
@@ -849,30 +920,24 @@ function routePage() {
   }
 
   switch (page) {
-    case 'price':
-      startPoll('dashboard', renderDashboard, 30000);
-      break;
-    case 'chart':
-      renderChart();
-      break;
-    case 'predict':
-      startPoll('predict', renderPredict, 60000);
+    case 'indicators':
+      setActiveNav('indicators');
+      renderIndicatorsPage(sub);
       break;
     case 'chat':
       renderChat();
       break;
+    case 'miniapp':
+      setActiveNav('miniapp');
+      renderMiniAppPage(sub, param);
+      break;
     case 'news':
-      startPoll('news', renderNews, 120000);
-      break;
-    case 'learn':
-      if (param) renderLesson(param);
-      else renderLearnList();
-      break;
-    case 'alerts':
-      renderAlerts();
+      setActiveNav('news');
+      renderNewsPage(sub);
       break;
     default:
-      startPoll('dashboard', renderDashboard, 30000);
+      setActiveNav('indicators');
+      renderIndicatorsPage('price');
   }
 }
 
