@@ -1,5 +1,3 @@
-from datetime import datetime, timezone
-
 from aiogram.filters import Command
 from aiogram.types import Message
 
@@ -7,8 +5,6 @@ from backend.agents import ask_agent
 from bot.state import dp, menu_kb, _ts
 
 _user_pending: set[int] = set()
-_user_last_ask: dict[int, datetime] = {}
-ASK_COOLDOWN = 15
 
 
 @dp.message(Command(commands=["ask"]))
@@ -38,13 +34,12 @@ async def ask(message: Message):
         )
         return
 
-    last = _user_last_ask.get(user_id)
-    if last and (datetime.now(timezone.utc) - last).total_seconds() < ASK_COOLDOWN:
-        return
-
     _user_pending.add(user_id)
 
-    await message.bot.send_chat_action(message.chat.id, "typing")
+    thinking = await message.answer(
+        f"⏳ Анализирую рынок…\n\n{_ts()}",
+        reply_markup=menu_kb,
+    )
 
     try:
         response = await ask_agent(
@@ -57,6 +52,11 @@ async def ask(message: Message):
 
     _user_pending.discard(user_id)
 
+    try:
+        await thinking.delete()
+    except Exception:
+        pass
+
     if not response or "[Agent error:" in response:
         await message.answer(
             "❌ BTC Monitor · Аналитика\n\n"
@@ -67,8 +67,6 @@ async def ask(message: Message):
 
     if len(response) > 4000:
         response = response[:4000] + "..."
-
-    _user_last_ask[user_id] = datetime.now(timezone.utc)
 
     await message.answer(
         f"🧠 BTC Monitor · Аналитика\n\n{_ts()}\n\n{response}\n\n♻️ Отвечает Market-Brain на базе AI",
