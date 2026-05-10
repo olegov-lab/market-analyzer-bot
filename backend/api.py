@@ -255,42 +255,61 @@ async def miniapp_unsubscribe(request: Request, sub_id: int, alert_type: str):
 
 # ─── Async AI task store (polling-based) ──────────────────────────
 
+async def _fetch_timothy_analysis(price: Optional[float], indicators) -> str:
+    """Call OpenCode agent for Timothy Peterson-style analysis with current market data."""
+    system_prompt = (
+        "You are Timothy Peterson, a renowned Bitcoin analyst and author of the paper "
+        "'Metcalfe's Law as a Model for Bitcoin's Value'. You are known for the Lowest Price "
+        "Forward (LPF) indicator and modeling BTC price using network effects. "
+        "Your analysis style: data-driven, quantitative, skeptical of hype, focused on long-term "
+        "trends, Metcalfe's Law, hash rate, and adoption curves. Answer in Russian, "
+        "be concise (300-400 words). Use ONLY the real-time data provided in the prompt. "
+        "Do NOT invent prices or dates — reference only what is given."
+    )
+    ctx_parts = []
+    if price:
+        ctx_parts.append(f"Текущая цена BTC: ${price:,.0f}")
+    if indicators:
+        if indicators.rsi is not None:
+            ctx_parts.append(f"RSI(14): {indicators.rsi:.1f}")
+        if indicators.ma_50 is not None and indicators.ma_200 is not None:
+            ctx_parts.append(f"MA50: ${indicators.ma_50:,.0f}, MA200: ${indicators.ma_200:,.0f}")
+    ctx = "\n".join(ctx_parts)
+    prompt = (
+        "Give a brief Bitcoin market analysis in your signature Timothy Peterson style.\n\n"
+        f"REAL-TIME DATA (use these exact numbers, do not fabricate):\n{ctx}\n\n"
+        "Include your view on current valuation relative to Metcalfe's Law, "
+        "key support/resistance levels based on the MA values above, and near-term outlook. "
+        "Write in Russian, 300-400 words."
+    )
+    client = _get_client()
+    resp = await client.chat.completions.create(
+        model="deepseek-v4-pro",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.7,
+        max_tokens=2048,
+    )
+    msg = resp.choices[0].message
+    text = msg.content or ""
+    reasoning = getattr(msg, "reasoning_content", None) or ""
+    return text or reasoning or "[empty response]"
+
+
 async def _warmup_timothy_cache():
     """Pre-fill Timothy news cache at startup so first user request is instant."""
     cache_key = "news:timothy"
     if redis_client and await redis_client.exists(cache_key):
         return
     try:
-        system_prompt = (
-            "You are Timothy Peterson, a renowned Bitcoin analyst and author of the paper "
-            "'Metcalfe's Law as a Model for Bitcoin's Value'. You are known for the Lowest Price "
-            "Forward (LPF) indicator and modeling BTC price using network effects. "
-            "Your analysis style: data-driven, quantitative, skeptical of hype, focused on long-term "
-            "trends, Metcalfe's Law, hash rate, and adoption curves. Answer in Russian, "
-            "be concise (300-400 words). Provide a current Bitcoin market analysis in your signature style — "
-            "include perspective on valuation vs Metcalfe's Law, key support/resistance levels, "
-            "and a short-term outlook."
+        price, indicators = await safe_gather(
+            db.get_latest_price("BTCUSD"),
+            analyzer.compute_indicators(),
+            log_prefix="timothy_warmup",
         )
-        prompt = (
-            "Give a brief Bitcoin market analysis in your signature Timothy Peterson style. "
-            "Include your view on current valuation relative to Metcalfe's Law, "
-            "key support/resistance levels, and near-term outlook. "
-            "Write in Russian, 300-400 words, factual with numbers where relevant."
-        )
-        client = _get_client()
-        resp = await client.chat.completions.create(
-            model="deepseek-v4-pro",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.7,
-            max_tokens=2048,
-        )
-        msg = resp.choices[0].message
-        text = msg.content or ""
-        reasoning = getattr(msg, "reasoning_content", None) or ""
-        text = text or reasoning or "[empty response]"
+        text = await _fetch_timothy_analysis(price, indicators)
         result = {"text": text, "source": "Timothy Peterson via AI"}
         if redis_client:
             await redis_client.setex(cache_key, 3600, json.dumps(result, ensure_ascii=False))
@@ -431,13 +450,34 @@ async def miniapp_news_timothy(request: Request):
         "trends, Metcalfe's Law, hash rate, and adoption curves. Answer in Russian, "
         "be concise (300-400 words). Provide a current Bitcoin market analysis in your signature style — "
         "include perspective on valuation vs Metcalfe's Law, key support/resistance levels, "
-        "and a short-term outlook."
+        "and a short-term outlook. Use ONLY the real-time data provided in the prompt. "
+        "Do NOT invent prices or dates — reference only what is given."
     )
+    # Fetch current market context for accurate analysis
+    price = indicators = None
+    try:
+        price, indicators = await safe_gather(
+            db.get_latest_price("BTCUSD"),
+            analyzer.compute_indicators(),
+        )
+    except Exception:
+        pass
+
+    ctx_parts = []
+    if price:
+        ctx_parts.append(f"Текущая цена BTC: ${price:,.0f}")
+    if indicators:
+        if indicators.rsi is not None:
+            ctx_parts.append(f"RSI(14): {indicators.rsi:.1f}")
+        if indicators.ma_50 is not None and indicators.ma_200 is not None:
+            ctx_parts.append(f"MA50: ${indicators.ma_50:,.0f}, MA200: ${indicators.ma_200:,.0f}")
+    ctx = "\n".join(ctx_parts)
     prompt = (
-        "Give a brief Bitcoin market analysis in your signature Timothy Peterson style. "
+        "Give a brief Bitcoin market analysis in your signature Timothy Peterson style.\n\n"
+        f"REAL-TIME DATA (use these exact numbers, do not fabricate):\n{ctx}\n\n"
         "Include your view on current valuation relative to Metcalfe's Law, "
-        "key support/resistance levels, and near-term outlook. "
-        "Write in Russian, 300-400 words, factual with numbers where relevant."
+        "key support/resistance levels based on the MA values above, and near-term outlook. "
+        "Write in Russian, 300-400 words."
     )
     try:
         client = _get_client()
