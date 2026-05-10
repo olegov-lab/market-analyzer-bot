@@ -590,7 +590,6 @@ function destroyChart() {
 
 async function renderChart() {
   tgBackButton('hide');
-  stopAllPolls();
 
   const chartDiv = document.getElementById('indicators-chart');
   if (!chartDiv) return;
@@ -913,6 +912,7 @@ async function renderGames() {
 function routePage() {
   const { page, sub, param } = parseHash();
   stopAllPolls();
+  destroyChart();
 
   if (!initData) {
     render('<div class="card" style="text-align:center;padding:40px;"><div style="font-size:40px;margin-bottom:16px;">📊</div><div style="font-weight:600;font-size:18px;">BTC Monitor</div><div style="margin-top:8px;color:var(--hint);">Открой это приложение через Telegram Bot<br>👇<br>📊 BTC Dashboard</div></div>');
