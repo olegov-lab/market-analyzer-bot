@@ -1917,5 +1917,7 @@ bc9185b Add AI Chat /ask with Market-Brain agent
 ### 34.7 История изменений
 
 ```
-[commits for this session]
+b3b86e6 Fix P0/P1: PriceBuffer data loss, return_exceptions logging, SQL injection, duplicate route
+  Новый файл: btcbot/utils.py (safe_gather helper)
+  Изменено: btcbot/collector.py, backend/api.py, btcbot/db.py, bot/handlers/ask.py, HistoryDev.md
 ```
