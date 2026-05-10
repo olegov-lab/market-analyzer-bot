@@ -870,7 +870,10 @@ function renderMiniAppPage(sub, param) {
     </div>
     <div id="sub-content"></div>
   `);
-  if (sub === 'games') renderGames();
+  if (sub === 'games') {
+    if (param === 'trading') renderTradingGame();
+    else renderGameLobby();
+  }
   else if (sub === 'lessons' && param) renderLesson(param);
   else renderLearnList();
 }
@@ -904,9 +907,31 @@ async function renderTimothyNews() {
 }
 
 // ─── Games Page ─────────────────────────────────────────────────────
-async function renderGames() {
+const GAMES = [
+  { slug: 'trading', icon: '🎯', title: 'Торговый симулятор', desc: 'Виртуальная торговля BTC. Стартовый баланс $10,000. Покупайте и продавайте по реальной цене.', btn: '▶ Играть' },
+];
+
+function renderGameLobby() {
   tgBackButton('show');
   tgBackButton('onClick', () => { window.location.hash = '#miniapp/lessons'; });
+  stopAllPolls();
+  let html = '';
+  for (const g of GAMES) {
+    html += '<div class="game-lobby-card" onclick="window.location.hash=\'#miniapp/games/' + g.slug + '\'">';
+    html += '<div class="game-lobby-icon">' + g.icon + '</div>';
+    html += '<div class="game-lobby-body">';
+    html += '<div class="game-lobby-title">' + g.title + '</div>';
+    html += '<div class="game-lobby-desc">' + g.desc + '</div>';
+    html += '<div class="game-lobby-btn">' + g.btn + '</div>';
+    html += '</div></div>';
+  }
+  html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;">Больше игр скоро появятся 🚀</div>';
+  renderSub(html);
+}
+
+async function renderTradingGame() {
+  tgBackButton('show');
+  tgBackButton('onClick', () => { window.location.hash = '#miniapp/games'; });
   stopAllPolls();
   renderSub('<div class="skeleton skeleton-hero"></div><div class="skeleton skeleton-block"></div>');
   try {
@@ -961,7 +986,7 @@ async function renderGames() {
         try {
           const res = await apiCall('/miniapp/game/buy', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({usdt_amount: amt}) });
           tgShowAlert('Куплено ' + res.quantity + ' BTC за $' + fmtPrice(res.notional));
-          renderGames();
+          renderTradingGame();
         } catch (e) { tgShowAlert(e.message); btnBuy.disabled = false; btnBuy.textContent = 'Купить BTC'; }
       });
     }
@@ -975,7 +1000,7 @@ async function renderGames() {
           const res = await apiCall('/miniapp/game/sell', { method: 'POST' });
           const emoji = res.is_win ? '🎉' : '📉';
           tgShowAlert(emoji + ' ' + (res.pnl >= 0 ? '+' : '') + '$' + fmtPrice(res.pnl) + ' (' + res.pnl_pct + '%)');
-          renderGames();
+          renderTradingGame();
         } catch (e) { tgShowAlert(e.message); btnSell.disabled = false; btnSell.textContent = 'Продать BTC'; }
       });
     }

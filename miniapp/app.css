@@ -673,3 +673,50 @@ body {
 .game-trade:last-child { border-bottom: none; }
 .value.up { color: var(--green); }
 .value.down { color: var(--red); }
+
+/* ─── Game Lobby ─── */
+.game-lobby-card {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  background: var(--section-bg);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.game-lobby-card:active { opacity: 0.7; }
+.game-lobby-icon {
+  font-size: 36px;
+  flex-shrink: 0;
+  width: 48px;
+  text-align: center;
+  line-height: 1;
+}
+.game-lobby-body {
+  flex: 1;
+  min-width: 0;
+}
+.game-lobby-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.game-lobby-desc {
+  font-size: 12px;
+  color: var(--hint);
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+.game-lobby-btn {
+  display: inline-block;
+  padding: 6px 18px;
+  border-radius: 16px;
+  background: var(--btn);
+  color: var(--btn-text);
+  font-size: 12px;
+  font-weight: 600;
+}
