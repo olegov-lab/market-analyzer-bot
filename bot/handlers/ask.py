@@ -17,14 +17,13 @@ async def ask(message: Message):
 
     if not question:
         await message.answer(
-            f"🧠 *BTC Monitor* · Аналитика\n\n"
-            f"Задай вопрос о Bitcoin и Market-Brain ответит:\n\n"
-            f"▪ `/ask Почему BTC падает?`\n"
-            f"▪ `/ask Что такое MVRV?`\n"
-            f"▪ `/ask Прогноз на неделю`\n"
-            f"▪ `/ask Стоит ли покупать сейчас?`\n\n"
+            "🧠 BTC Monitor · Аналитика\n\n"
+            "Задай вопрос о Bitcoin и Market-Brain ответит:\n\n"
+            "▪ /ask Почему BTC падает?\n"
+            "▪ /ask Что такое MVRV?\n"
+            "▪ /ask Прогноз на неделю\n"
+            "▪ /ask Стоит ли покупать сейчас?\n\n"
             f"{_ts()}",
-            parse_mode="Markdown",
             reply_markup=menu_kb,
         )
         return
@@ -35,8 +34,7 @@ async def ask(message: Message):
     if last and (now - last).total_seconds() < ASK_COOLDOWN:
         wait = int(ASK_COOLDOWN - (now - last).total_seconds())
         await message.answer(
-            f"⏳ *BTC Monitor* · Подожди {wait} сек перед следующим вопросом\n\n{_ts()}",
-            parse_mode="Markdown",
+            f"⏳ BTC Monitor · Подожди {wait} сек перед следующим вопросом\n\n{_ts()}",
             reply_markup=menu_kb,
         )
         return
@@ -51,19 +49,21 @@ async def ask(message: Message):
             f"Ответь на русском языке. Вопрос пользователя: {question}",
             temperature=0.7,
         )
-    except Exception as e:
-        response = f"[Agent error: {e}]"
+    except Exception:
+        response = None
 
-    if not response or response == "[empty response]":
-        response = "❌ Агент временно недоступен. Попробуй позже."
+    if not response or "[Agent error:" in response:
+        await message.answer(
+            "❌ BTC Monitor · Аналитика\n\n"
+            "Агент временно недоступен. Попробуй позже.",
+            reply_markup=menu_kb,
+        )
+        return
 
-    lines = [
-        f"🧠 *BTC Monitor* · Аналитика",
-        "",
-        _ts(),
-        "",
-        response,
-        "",
-        "♻️ Отвечает Market-Brain на базе AI",
-    ]
-    await message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=menu_kb)
+    if len(response) > 4000:
+        response = response[:4000] + "..."
+
+    await message.answer(
+        f"🧠 BTC Monitor · Аналитика\n\n{_ts()}\n\n{response}\n\n♻️ Отвечает Market-Brain на базе AI",
+        reply_markup=menu_kb,
+    )
