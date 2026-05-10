@@ -19,6 +19,8 @@ fear_greed = FearGreedIndex(redis_client)
 menu_kb = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="/btc"), KeyboardButton(text="/predict")],
+        [KeyboardButton(text="/buy"), KeyboardButton(text="/sell")],
+        [KeyboardButton(text="/portfolio"), KeyboardButton(text="/leaderboard")],
         [KeyboardButton(text="/ask"), KeyboardButton(text="/volatility")],
         [KeyboardButton(text="/subscribe"), KeyboardButton(text="/alerts")],
         [KeyboardButton(text="/news"), KeyboardButton(text="/learn")],

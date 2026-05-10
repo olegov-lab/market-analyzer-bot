@@ -18,6 +18,7 @@ from btcbot.analyzer import Analyzer
 from btcbot.config import settings
 from btcbot.db import Database
 from btcbot.fear_greed import FearGreedIndex
+from btcbot.game import GameEngine
 from btcbot.lessons import LESSONS
 from btcbot.news import NEWS_CACHE_TTL, build_sentiment_summary, fetch_news
 from btcbot.utils import safe_gather
@@ -33,6 +34,7 @@ db = Database(settings.database_url)
 redis_client: Optional[aioredis.Redis] = None
 analyzer: Optional[Analyzer] = None
 fear_greed: Optional[FearGreedIndex] = None
+game_engine: Optional[GameEngine] = None
 
 CORS_ORIGIN = settings.miniapp_url_normalized.rstrip("/")
 app.add_middleware(
@@ -53,11 +55,12 @@ async def _get_user_id(request: Request) -> int:
 
 @app.on_event("startup")
 async def startup():
-    global redis_client, analyzer, fear_greed
+    global redis_client, analyzer, fear_greed, game_engine
     await db.connect()
     redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
     analyzer = Analyzer(db, redis_client)
     fear_greed = FearGreedIndex(redis_client)
+    game_engine = GameEngine(db)
     asyncio.create_task(analyzer.warmup_cache())
     asyncio.create_task(_cleanup_old_tasks())
     asyncio.create_task(_warmup_timothy_cache())
@@ -502,6 +505,52 @@ async def miniapp_news_timothy(request: Request):
     if redis_client:
         await redis_client.setex(cache_key, 3600, json.dumps(result, ensure_ascii=False))
     return result
+
+
+# ─── Game (Trading Simulator) ─────────────────────────────────────
+
+@app.get("/miniapp/game/state")
+@limiter.limit("30/minute")
+async def game_state(request: Request):
+    user_id = await _get_user_id(request)
+    return await game_engine.get_portfolio(user_id)
+
+
+@app.post("/miniapp/game/buy")
+@limiter.limit("10/minute")
+async def game_buy(request: Request):
+    user_id = await _get_user_id(request)
+    body = await request.json()
+    usdt_amount = float(body.get("usdt_amount", 0))
+    try:
+        result = await game_engine.buy(user_id, usdt_amount)
+        return result
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/miniapp/game/sell")
+@limiter.limit("10/minute")
+async def game_sell(request: Request):
+    user_id = await _get_user_id(request)
+    try:
+        result = await game_engine.sell(user_id)
+        return result
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/miniapp/game/history")
+@limiter.limit("30/minute")
+async def game_history(request: Request, limit: int = 20, offset: int = 0):
+    user_id = await _get_user_id(request)
+    return await game_engine.get_history(user_id, limit, offset)
+
+
+@app.get("/miniapp/game/leaderboard")
+@limiter.limit("30/minute")
+async def game_leaderboard(request: Request):
+    return await game_engine.get_leaderboard()
 
 
 # ─── Static files for Mini App ─────────────────────────────────────

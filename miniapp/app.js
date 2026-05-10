@@ -907,13 +907,81 @@ async function renderTimothyNews() {
 async function renderGames() {
   tgBackButton('show');
   tgBackButton('onClick', () => { window.location.hash = '#miniapp/lessons'; });
-  renderSub(`
-    <div class="card">
-      <div class="card-title">🎮 Игры</div>
-      <p style="color:var(--hint);margin-bottom:12px;">Скоро здесь появятся крипто-квизы и тренировки.</p>
-      <div style="text-align:center;padding:20px;font-size:48px;">🎲</div>
-    </div>
-  `);
+  stopAllPolls();
+  renderSub('<div class="skeleton skeleton-hero"></div><div class="skeleton skeleton-block"></div>');
+  try {
+    const data = await apiCall('/miniapp/game/state');
+    const pnlClass = data.total_pnl >= 0 ? 'up' : 'down';
+    const pnlSign = data.total_pnl >= 0 ? '+' : '';
+
+    let html = '<div class="game-hero"><div class="game-hero-value">$' + fmtPrice(data.total_value) + '</div><div class="game-hero-sub">Стоимость портфеля</div>';
+    html += '<div class="game-metrics">';
+    html += '<div class="game-metric"><span class="label">Кеш</span><span class="value">$' + fmtPrice(data.balance) + '</span></div>';
+    html += '<div class="game-metric"><span class="label">P&amp;L</span><span class="value ' + pnlClass + '">' + pnlSign + '$' + fmtPrice(data.total_pnl) + '</span></div>';
+    html += '<div class="game-metric"><span class="label">Сделок</span><span class="value">' + data.total_trades + '</span></div>';
+    html += '<div class="game-metric"><span class="label">Win Rate</span><span class="value">' + data.win_rate + '%</span></div>';
+    html += '</div></div>';
+
+    html += '<div class="card"><div class="card-title">BTC/USD</div>';
+    html += '<div class="game-price">$' + (data.btc_price ? data.btc_price.toLocaleString('en-US') : '—') + '</div>';
+
+    if (data.positions && data.positions.length > 0) {
+      const pos = data.positions[0];
+      const posPnlClass = pos.pnl >= 0 ? 'up' : 'down';
+      html += '<div class="game-position"><span class="label">Позиция: ' + pos.side + ' ' + pos.quantity + ' BTC @ $' + fmtPrice(pos.entry_price) + '</span>';
+      html += '<span class="value ' + posPnlClass + '">' + (pos.pnl >= 0 ? '+' : '') + '$' + fmtPrice(pos.pnl) + ' (' + pos.pnl_pct + '%)</span></div>';
+      html += '<button class="game-btn sell" id="btn-sell">Продать BTC</button>';
+    } else {
+      html += '<div style="display:flex;gap:8px;margin-top:12px;">';
+      html += '<input type="number" id="buy-amount" class="game-input" placeholder="Сумма в USD" min="10" max="' + Math.floor(data.balance) + '" value="100">';
+      html += '<button class="game-btn buy" id="btn-buy">Купить BTC</button>';
+      html += '</div>';
+    }
+    html += '</div>';
+
+    if (data.recent_trades && data.recent_trades.length > 0) {
+      html += '<div class="card"><div class="card-title">История сделок</div>';
+      for (const t of data.recent_trades) {
+        const tClass = t.pnl >= 0 ? 'up' : 'down';
+        html += '<div class="game-trade"><span>' + t.side + ' ' + t.quantity + ' BTC</span><span class="value ' + tClass + '">' + (t.pnl >= 0 ? '+' : '') + '$' + fmtPrice(t.pnl) + '</span></div>';
+      }
+      html += '</div>';
+    }
+
+    html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;">♻️ Комиссия 0.1% &middot; Мин. сделка $10</div>';
+    renderSub(html);
+
+    const btnBuy = document.getElementById('btn-buy');
+    if (btnBuy) {
+      btnBuy.addEventListener('click', async () => {
+        haptic('light');
+        const amt = parseFloat(document.getElementById('buy-amount').value);
+        if (!amt || amt < 10) { tgShowAlert('Минимальная сумма: $10'); return; }
+        btnBuy.disabled = true; btnBuy.textContent = '...';
+        try {
+          const res = await apiCall('/miniapp/game/buy', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({usdt_amount: amt}) });
+          tgShowAlert('Куплено ' + res.quantity + ' BTC за $' + fmtPrice(res.notional));
+          renderGames();
+        } catch (e) { tgShowAlert(e.message); btnBuy.disabled = false; btnBuy.textContent = 'Купить BTC'; }
+      });
+    }
+
+    const btnSell = document.getElementById('btn-sell');
+    if (btnSell) {
+      btnSell.addEventListener('click', async () => {
+        haptic('light');
+        btnSell.disabled = true; btnSell.textContent = '...';
+        try {
+          const res = await apiCall('/miniapp/game/sell', { method: 'POST' });
+          const emoji = res.is_win ? '🎉' : '📉';
+          tgShowAlert(emoji + ' ' + (res.pnl >= 0 ? '+' : '') + '$' + fmtPrice(res.pnl) + ' (' + res.pnl_pct + '%)');
+          renderGames();
+        } catch (e) { tgShowAlert(e.message); btnSell.disabled = false; btnSell.textContent = 'Продать BTC'; }
+      });
+    }
+  } catch (e) {
+    renderSub('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + escapeHtml(e.message) + '</div></div>');
+  }
 }
 
 function routePage() {

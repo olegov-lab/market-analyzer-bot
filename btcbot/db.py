@@ -165,6 +165,62 @@ class Database:
                 )
             """)
 
+            # --- Game tables ---
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS game_users (
+                    user_id BIGINT PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+                    balance DOUBLE PRECISION DEFAULT 10000,
+                    total_pnl DOUBLE PRECISION DEFAULT 0,
+                    total_trades INT DEFAULT 0,
+                    winning_trades INT DEFAULT 0,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS positions (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT REFERENCES game_users(user_id) ON DELETE CASCADE,
+                    side TEXT NOT NULL CHECK (side IN ('LONG', 'SHORT')),
+                    entry_price DOUBLE PRECISION NOT NULL,
+                    quantity DOUBLE PRECISION NOT NULL,
+                    notional DOUBLE PRECISION NOT NULL,
+                    opened_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS trades (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT REFERENCES game_users(user_id) ON DELETE CASCADE,
+                    side TEXT NOT NULL,
+                    entry_price DOUBLE PRECISION NOT NULL,
+                    exit_price DOUBLE PRECISION NOT NULL,
+                    quantity DOUBLE PRECISION NOT NULL,
+                    pnl DOUBLE PRECISION NOT NULL,
+                    pnl_pct DOUBLE PRECISION NOT NULL,
+                    opened_at TIMESTAMPTZ NOT NULL,
+                    closed_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            await conn.execute("""
+                CREATE MATERIALIZED VIEW IF NOT EXISTS leaderboard_mv AS
+                SELECT
+                    gu.user_id,
+                    u.username,
+                    gu.balance,
+                    gu.total_pnl,
+                    gu.total_trades,
+                    CASE WHEN gu.total_trades > 0
+                        THEN gu.winning_trades::float / gu.total_trades
+                        ELSE 0 END AS win_rate,
+                    ROW_NUMBER() OVER (ORDER BY gu.total_pnl DESC) AS rank
+                FROM game_users gu
+                JOIN users u ON gu.user_id = u.user_id
+                WHERE gu.total_trades >= 1
+                ORDER BY gu.total_pnl DESC
+                LIMIT 20
+            """)
+
     async def save_price(self, record: Any) -> None:
         async with self.pool.acquire() as conn:
             await conn.execute(
@@ -429,3 +485,77 @@ class Database:
                 }
                 for r in reversed(rows)
             ]
+
+    # ─── Game methods ─────────────────────────────────────────────────
+
+    async def get_or_create_game_user(self, user_id: int) -> asyncpg.Record:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM game_users WHERE user_id = $1", user_id)
+            if not row:
+                row = await conn.fetchrow(
+                    "INSERT INTO game_users (user_id, balance) VALUES ($1, 10000) RETURNING *",
+                    user_id,
+                )
+            return row
+
+    async def open_position(self, user_id: int, side: str, quantity: float, entry_price: float, notional: float) -> asyncpg.Record:
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    "UPDATE game_users SET balance = balance - $1, updated_at = NOW() WHERE user_id = $2",
+                    notional, user_id,
+                )
+                row = await conn.fetchrow(
+                    "INSERT INTO positions (user_id, side, entry_price, quantity, notional) VALUES ($1,$2,$3,$4,$5) RETURNING *",
+                    user_id, side, entry_price, quantity, notional,
+                )
+            return row
+
+    async def close_position(self, user_id: int, position_id: int, exit_price: float, fee_pct: float = 0.001) -> asyncpg.Record:
+        async with self.pool.acquire() as conn:
+            pos = await conn.fetchrow("SELECT * FROM positions WHERE id = $1 AND user_id = $2", position_id, user_id)
+            if not pos:
+                return None
+            fee = pos["notional"] * fee_pct * 2  # entry + exit fee
+            if pos["side"] == "LONG":
+                pnl = (exit_price - pos["entry_price"]) * pos["quantity"] - fee
+            else:
+                pnl = (pos["entry_price"] - exit_price) * pos["quantity"] - fee
+            pnl_pct = (pnl / pos["notional"]) * 100
+            async with conn.transaction():
+                await conn.execute("DELETE FROM positions WHERE id = $1", position_id)
+                await conn.execute(
+                    "UPDATE game_users SET balance = balance + $1 + $2, total_pnl = total_pnl + $1, total_trades = total_trades + 1, winning_trades = winning_trades + CASE WHEN $1 > 0 THEN 1 ELSE 0 END, updated_at = NOW() WHERE user_id = $3",
+                    pnl, pos["notional"], user_id,
+                )
+                row = await conn.fetchrow(
+                    "INSERT INTO trades (user_id, side, entry_price, exit_price, quantity, pnl, pnl_pct, opened_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *",
+                    user_id, pos["side"], pos["entry_price"], exit_price, pos["quantity"], pnl, pnl_pct, pos["opened_at"],
+                )
+            return row
+
+    async def get_game_user(self, user_id: int) -> Optional[asyncpg.Record]:
+        async with self.pool.acquire() as conn:
+            return await conn.fetchrow("SELECT * FROM game_users WHERE user_id = $1", user_id)
+
+    async def get_positions(self, user_id: int) -> list[asyncpg.Record]:
+        async with self.pool.acquire() as conn:
+            return await conn.fetch("SELECT * FROM positions WHERE user_id = $1 ORDER BY opened_at DESC", user_id)
+
+    async def get_trades(self, user_id: int, limit: int = 20, offset: int = 0) -> list[asyncpg.Record]:
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(
+                "SELECT * FROM trades WHERE user_id = $1 ORDER BY closed_at DESC LIMIT $2 OFFSET $3",
+                user_id, limit, offset,
+            )
+
+    async def refresh_leaderboard(self) -> None:
+        async with self.pool.acquire() as conn:
+            try:
+                await conn.execute("REFRESH MATERIALIZED VIEW leaderboard_mv")
+            except Exception:
+                pass
+
+    async def get_leaderboard(self) -> list[asyncpg.Record]:
+        async with self.pool.acquire() as conn:
+            return await conn.fetch("SELECT * FROM leaderboard_mv ORDER BY rank")

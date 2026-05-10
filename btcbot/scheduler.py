@@ -121,8 +121,16 @@ async def main() -> None:
     analyzer = Analyzer(db, r)
     alert_manager = AlertManager(db, r, bot)
     scheduler = Scheduler(analyzer, alert_manager)
-
     scheduler.start()
+
+    async def _refresh_lb():
+        while True:
+            await asyncio.sleep(3600)
+            try:
+                await db.refresh_leaderboard()
+            except Exception:
+                pass
+    asyncio.create_task(_refresh_lb())
 
     try:
         await asyncio.Event().wait()
