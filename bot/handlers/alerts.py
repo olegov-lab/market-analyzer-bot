@@ -52,11 +52,14 @@ async def alerts(message: Message):
 
     parts = [f"🔔 <b>BTC Monitor</b> · Подписки", "", _ts(), ""]
 
+    builder = InlineKeyboardBuilder()
     if subs:
         parts.append("── Алерты ──")
         for sub in subs:
             for at in sub["alert_types"]:
-                parts.append(f"▸ {_h(at)} ({_h(sub['symbol'])}) — удалить: /alert_remove {sub['id']}")
+                label = {"rsi": "RSI", "ma_cross": "MA Cross", "volume_spike": "Volume Spike"}.get(at, at)
+                parts.append(f"▸ {_h(label)} ({_h(sub['symbol'])})")
+                builder.button(text=f"❌ {label}", callback_data=f"del_{sub['id']}_{at}")
         parts.append("")
 
     if price_alerts_list:
@@ -66,9 +69,10 @@ async def alerts(message: Message):
             status = "✅ сработал" if a["triggered"] else "⏳ ожидание"
             parts.append(f"▸ ${a['target_price']:,.0f} ({_h(dir_text)}) — {_h(status)}")
             if not a["triggered"]:
-                parts.append(f"  удалить: /alert_remove {a['id']}")
+                builder.button(text=f"❌ ${a['target_price']:,.0f}", callback_data=f"del_price_{a['id']}")
 
-    await message.answer("\n".join(parts), parse_mode="HTML", reply_markup=menu_kb)
+    builder.adjust(1)
+    await message.answer("\n".join(parts), parse_mode="HTML", reply_markup=builder.as_markup())
 
 
 @dp.callback_query(lambda c: c.data.startswith("sub_"))
@@ -95,5 +99,16 @@ async def handle_delete(callback: CallbackQuery):
     await callback.answer("Подписка обновлена")
     await callback.message.edit_text(
         "✅ <b>BTC Monitor</b> · Подписки\n\n💡 Подписка обновлена",
+        parse_mode="HTML",
+    )
+
+
+@dp.callback_query(lambda c: c.data.startswith("del_price_"))
+async def handle_delete_price(callback: CallbackQuery):
+    alert_id = int(callback.data.split("_")[2])
+    await db.delete_price_alert(alert_id)
+    await callback.answer("Сигнал удалён")
+    await callback.message.edit_text(
+        "✅ <b>BTC Monitor</b> · Подписки\n\n💡 Ценовой сигнал удалён",
         parse_mode="HTML",
     )
