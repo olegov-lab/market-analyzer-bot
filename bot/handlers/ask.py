@@ -6,8 +6,9 @@ from aiogram.types import Message
 from backend.agents import ask_agent
 from bot.state import dp, menu_kb, _ts
 
+_user_pending: set[int] = set()
 _user_last_ask: dict[int, datetime] = {}
-ASK_COOLDOWN = 30
+ASK_COOLDOWN = 15
 
 
 @dp.message(Command(commands=["ask"]))
@@ -29,17 +30,19 @@ async def ask(message: Message):
         return
 
     user_id = message.from_user.id
-    now = datetime.now(timezone.utc)
-    last = _user_last_ask.get(user_id)
-    if last and (now - last).total_seconds() < ASK_COOLDOWN:
-        wait = int(ASK_COOLDOWN - (now - last).total_seconds())
+
+    if user_id in _user_pending:
         await message.answer(
-            f"⏳ BTC Monitor · Подожди {wait} сек перед следующим вопросом\n\n{_ts()}",
+            "⏳ уже отвечаю на предыдущий вопрос",
             reply_markup=menu_kb,
         )
         return
 
-    _user_last_ask[user_id] = now
+    last = _user_last_ask.get(user_id)
+    if last and (datetime.now(timezone.utc) - last).total_seconds() < ASK_COOLDOWN:
+        return
+
+    _user_pending.add(user_id)
 
     await message.bot.send_chat_action(message.chat.id, "typing")
 
@@ -52,6 +55,8 @@ async def ask(message: Message):
     except Exception:
         response = None
 
+    _user_pending.discard(user_id)
+
     if not response or "[Agent error:" in response:
         await message.answer(
             "❌ BTC Monitor · Аналитика\n\n"
@@ -62,6 +67,8 @@ async def ask(message: Message):
 
     if len(response) > 4000:
         response = response[:4000] + "..."
+
+    _user_last_ask[user_id] = datetime.now(timezone.utc)
 
     await message.answer(
         f"🧠 BTC Monitor · Аналитика\n\n{_ts()}\n\n{response}\n\n♻️ Отвечает Market-Brain на базе AI",
