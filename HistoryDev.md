@@ -2527,3 +2527,63 @@ e424e39 Glassmorphism bottom nav: blur, dark panel, icon scale animation
 - Меню: glassmorphism (blur, тёмная панель, масштабирование иконок) ✅
 - График: отдельная sub-tab, первая при входе в Индикаторы ✅
 - Telegram WebView кеш: решается переименованием файлов + выходом из приложения
+
+---
+
+## Сессия 38 — Торговый симулятор (Paper Trading MVP) (10.05.2026)
+
+### Участники
+- **Market-Brain** (DeepSeek V4 Pro) — механика: P&L, комиссии, win rate, рейтинг
+- **Sigma-Architect** (GLM-5.1) — архитектура: DB-схема, API, state management
+- **UI Designer** (Kimi K2.6) — дизайн интерфейса игры
+- **UX Designer** (Kimi K2.6) — сценарии, онбординг, haptics, анимации
+- **Business Strategist** (DeepSeek V4 Pro) — геймификация, монетизация, рефералы
+- Главный разработчик — реализация
+
+### 38.1 Концепция
+Виртуальный торговый счёт на $10,000. Покупка/продажа BTC по реальной рыночной цене. P&L, win rate, история сделок, лидерборд.
+
+### 38.2 Механика (Market-Brain)
+- **P&L:** `(exit - entry) × qty − fee × 2`. Win = P&L > $0 после комиссии
+- **Комиссия:** 0.1% (taker), мин. сделка $10
+- **Рейтинг:** комбинированный Score = ROI%×0.5 + WinRate%×0.2 + ProfitFactor×0.3
+- **Лидерборд:** топ-20 по total_pnl, порог ≥1 сделка
+
+### 38.3 Архитектура (Sigma-Architect)
+- **DB:** 4 таблицы (`game_users`, `positions`, `trades`, `leaderboard_mv`) + materialized view
+- **btcbot/game.py** — GameEngine: `get_portfolio()`, `buy()`, `sell()`, `get_history()`, `get_leaderboard()`
+- **backend/api.py** — `/miniapp/game/state`, `/buy`, `/sell`, `/history`, `/leaderboard`
+- **bot/handlers/game.py** — команды `/buy`, `/sell`, `/portfolio`, `/leaderboard`
+- **btcbot/scheduler.py** — `db.refresh_leaderboard()` каждый час
+- Цена: `db.get_latest_price("BTCUSD")`, транзакции с `SELECT ... FOR UPDATE`
+
+### 38.4 Mini App UI
+- **Лобби:** карточка «🎯 Торговый симулятор» с описанием и кнопкой «▶ Играть»
+- **Игра:** hero с портфелем (total value, cash, P&L$, сделок, win rate), цена BTC, Buy/Sell, история сделок
+- Навигация: `#miniapp/games` → лобби, `#miniapp/games/trading` → игра
+- `GAMES[]` массив — добавление новых игр одной строкой
+
+### 38.5 CSS: Glassmorphism bottom nav (9 итераций)
+- 8 переименований/правок → финальный `app.css`:
+  - `background: rgba(20,20,20,0.82)`, `backdrop-filter: blur(14px)`
+  - `border-radius: 24px`, зазоры 8px по бокам, 6px снизу
+  - Активная вкладка: белый + `scale(1.2)` иконки
+
+### 38.6 Геймификация (Business Strategist) — отложено
+- Daily Challenge «Угадай направление», Shareable P&L-карточка
+- XP + 30 уровней, Daily Login Bonus, бейджи
+- Premium через Telegram Stars ($4.99–$14.99/мес)
+- Weekly/Monthly/All-Time лидерборды, сезоны по месяцу
+- Рефералы: +$1000 обоим, deep-link `?start=ref_<id>`
+
+### Коммиты сессии 38
+```
+afc0d30 Trading simulator MVP: DB, GameEngine, API, bot commands, Mini App UI
+a0f4bfa Game lobby: card-based game selection with trading simulator card
+```
+
+### Текущее состояние после сессии 38
+- `/buy`, `/sell`, `/portfolio`, `/leaderboard` — бот-команды ✅
+- Mini App: лобби игр + торговый симулятор ✅
+- DB: игровые таблицы, leaderboard materialized view ✅
+- Меню: glassmorphism bottom nav ✅
