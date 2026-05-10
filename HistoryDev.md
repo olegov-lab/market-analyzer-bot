@@ -2396,141 +2396,73 @@ Relevant Files
 - backend/api.py: duplicate /miniapp/chart route removed; all return_exceptions=True replaced with safe_gather()
 - bot/handlers/ask.py: return_exceptions=True replaced with safe_gather()
 - HistoryDev.md: Sessions 34 (agent review) and 35 (Mini App restructure) appended
-▣  Compaction · Big Pickle · 33.9s
-Thinking: Let me analyze the conversation history and update the anchored summary.
-From the conversation, I can see:
-1. The user reported two bugs:
-   - Bug #1: Indicators tab shows nothing (infinite rendering loop). Root cause identified: renderChart() calls stopAllPolls() killing the dashboard poll.
-   - Bug #2: News Timothy tab shows user's original conversation text instead of placeholder stub. Root cause suspected to be cached JS from Telegram WebView.
-2. The agent proposed fixes:
-   - Fix 1: Remove stopAllPolls() from renderChart() (app.js lines 591-592)
-   - Fix 2: Update cache-busting in index.html from v=20260510.3 to v=20260510.4
-   - Fix 3: Add destroyChart() call in routePage() (app.js lines 912-915)
-3. The task result confirmed all 3 changes were applied.
-Now I need to update the previous summary:
-- Move the bugs from "In Progress" to "Done" (they've been fixed)
-- Update the cache-busting version
-- Update the relevant files section
-- Update progress status
-Let me craft the updated summary.
-## Goal
-Continue building BTC Monitor — Telegram Mini App for Bitcoin analysis with AI chat, price charts, indicators, news, and learning.
-## Constraints & Preferences
-- Russian language for bot and Mini App UI
-- All work done with agents: Sigma-Architect (GLM-5.1), Rapid-Dev (DeepSeek V4 Pro), Market-Brain (DeepSeek V4 Pro), Break-Hunter (DeepSeek V4 Pro), UI/UX Designer (Kimi K2.6)
-- Agents configs in `agents/*.json` define actual models (not local Ollama)
-- Docker compose deployment on Aeza VPS (77.110.104.104)
-- TimescaleDB + PostgreSQL 16 + Redis 7 stack
-- OpenCode Go API for AI agents (DeepSeek V4 Pro, GLM-5.1, Kimi K2.6)
-- All coding requires architect consultation first (via `task` tool with `subagent_type="general"`)
-## Progress
-### Done
-- **Full codebase review by 4 agents** (Sigma-Architect, Market-Brain, Rapid-Dev, Break-Hunter): 22 bugs, 3 race conditions, 12 edge cases, 7 vulnerabilities found
-- **P0/P1 fixes (4 changes deployed)**:
-  - PriceBuffer: `_buf.clear()` moved after successful save
-  - `btcbot/utils.py`: `safe_gather()` helper with error logging
-  - `api.py`: duplicate `/miniapp/chart` route removed
-  - `db.py`: parametrized `time_bucket` interval via `$3::text`
-- **Mini App restructured to 4 tabs** with pill sub-tabs and `renderSub()` helper
-- **HistoryDev.md**: Sessions 34 (agent review), 35 (Mini App restructure) appended
-- **Bug #1 fix** (indicators blank/infinite loop): removed `stopAllPolls()` from `renderChart()` — polling no longer killed on chart render; added `destroyChart()` call in `routePage()` to properly clean old chart on sub-tab switch
-- **Bug #2 fix** (News Timothy shows wrong content): cache-busting version bumped from `v=20260510.3` to `v=20260510.4` so Telegram WebView loads the new `app.js` containing `renderNewsPage()` function
-### In Progress
-- *(none)*
-### Blocked
-- ML 4h prediction still uses RSI fallback — only ~18h of data; needs more candles for first ML prediction
-- Race condition on `_lgb_model` — `asyncio.Lock` + `_is_training` flag not yet implemented
-- Bridge network instead of `network_mode: host` — blocked by Aeza networking constraints
-- Seed 90d history from CoinGecko — not yet implemented
-## Key Decisions
-- Agents configs (`agents/*.json`) are the source of truth for which model each agent uses, not AGENTS.md
-- Mini App navigation grouped from 7 to 4 parent tabs with pill sub-tabs — more scalable for adding features
-- `renderSub()` separates sub-content from page layout — chart and sub-tab bar survive sub-tab switches
-- Timothy Peterson Twitter integrated via OpenCode agent (not RSS or Twitter API)
-## Next Steps
-- Wait for more hourly candles to accumulate for first ML prediction (~24h needed)
-- Implement `asyncio.Lock` + `_is_training` flag for `_lgb_model` race condition fix
-- Seed 90d history from CoinGecko
-- Shareable Cards, Flash Event Alerts, Streaks/XP/Badges, Paper Trading, Lesson Quizzes, Daily Market Story
-## Critical Context
-- Server: root@77.110.104.104, project in /bot
-- Prices: ~18h data (2026-05-09 18:04 → 2026-05-10 ~12:00 UTC); 17 hourly candles available
-- All containers have volume mounts: api, bot, scheduler, collector mount `./btcbot:/app/btcbot`; api mounts `./backend:/app/backend` and `./miniapp:/app/miniapp`
-- Commit `b3b86e6` (P0/P1 fixes) + `39001ed` (Mini App restructure) deployed; awaiting `v=20260510.4` redeploy for cache-bust fix to take effect
-- Postgres password issue on server required `ALTER USER postgres WITH PASSWORD 'postgres';` to resolve
-## Relevant Files
-- `agents/*.json` (25 files): agent configs with models (GLM-5.1 for Sigma-Architect, DeepSeek V4 Pro for Rapid-Dev/Market-Brain, etc.)
-- `btcbot/utils.py` (NEW): `safe_gather()` helper with error logging
-- `miniapp/app.js` (958 lines): router with `parseHash()`, `navigate()`, `setActiveNav()`, `renderSub()` helper, page wrappers (`renderIndicatorsPage`, `renderMiniAppPage`, `renderNewsPage`, `renderGames`)
-  - `renderChart()` (line 591): no longer calls `stopAllPolls()` — fix for indicators blank tab
-  - `routePage()` (line 912): now calls `destroyChart()` after `stopAllPolls()` — proper chart cleanup on sub-tab switch
-- `miniapp/index.html`: 4-tab bottom nav; cache-bust now `v=20260510.4` (was `v=20260510.3`)
-- `miniapp/styles.css`: `.sub-tabs`, `.sub-tab` pill tabs, `#sub-content` layout
-- `btcbot/collector.py`: PriceBuffer `_buf.clear()` moved after `save_prices_batch()`
-- `btcbot/db.py`: `time_bucket` parametrized via `$3::text`
-- `backend/api.py`: duplicate `/miniapp/chart` route removed; all `return_exceptions=True` replaced with `safe_gather()`
-- `bot/handlers/ask.py`: `return_exceptions=True` replaced with `safe_gather()`
-- `HistoryDev.md`: Sessions 34 (agent review), 35 (Mini App restructure) appended
-▣  Compaction · Big Pickle · 29.5s
-Thinking: The user seems to be asking me to continue with the next steps from the project. Let me look at the "Next Steps" and "In Progress" sections:
-From the history:
-- Wait for more hourly candles to accumulate for first ML prediction (~24h needed)
-- Implement asyncio.Lock + _is_training flag for _lgb_model race condition fix
-- Seed 90d history from CoinGecko
-- Shareable Cards, Flash Event Alerts, Streaks/XP/Badges, Paper Trading, Lesson Quizzes, Daily Market Story
-- Bridge network instead of network_mode: host
-The "In Progress" section is empty, "Done" mentions Bug #2 fix was deployed but awaiting v=20260510.4 redeploy for cache-bust fix.
-Let me check the current state of things. But first, I need to ask - the next steps are listed but some are blocked (ML needs more data), some are implementation tasks. Let me check what's actually pending.
-Actually, let me re-read carefully. The user says "Continue if you have next steps, or stop and ask for clarification if you are unsure how to proceed."
-Looking at the next steps:
-1. Wait for more hourly candles - this is passive, just waiting
-2. Implement asyncio.Lock + _is_training flag - this is actionable
-3. Seed 90d history from CoinGecko - this is actionable
-4. Shareable Cards, Flash Event Alerts, etc. - these are features
-I should check the current state and then ask the user what they want to focus on, since there are multiple possible next steps. Let me first check what's deployed and the current state of the codebase.
-→ Read btcbot\collector.py
-→ Read btcbot\ml.py
-File not found: H:\Projects\market-analyzer-bot\btcbot\ml.py
-Thinking: Let me check the current state of the codebase more broadly - look at what files exist, what the current state is, and check for the ML model race condition issue.
-✱ Glob "btcbot/**/*.py" in . (13 matches)
-✱ Glob "miniapp/**/*" in . (4 matches)
-✱ Glob "backend/**/*.py" in . (4 matches)
-✱ Grep "_lgb_model|def predict|def train|ml_model" in . (11 matches)
-Thinking: Let me look at the analyzer.py to understand the ML race condition and see what the current state of things is.
-→ Read btcbot\analyzer.py
-Thinking: Let me analyze the current state:
-1. ML race condition: The _lgb_model already has a threading.Lock() (_lgb_lock) at line 74. So the basic race condition fix from next steps is already partially done. Let me check if there's an _is_training flag mentioned in the notes...
-Actually looking more carefully:
-- Line 74: _lgb_lock = threading.Lock() - this exists
-- But the _load_or_train_model method (line 417) releases the lock before training (line 430), so another thread could check and find _lgb_model is None AND MODEL_PATH doesn't exist, and also start training. The lock is acquired, then released if model file doesn't exist (line 429), then training happens outside the lock, then another acquire at line 433.
-So the race is: two concurrent calls to _load_or_train_model:
-1. Thread A acquires lock (line 418), finds no model, releases lock (line 429)
-2. Thread B acquires lock (line 418), finds no model, releases lock (line 429)
-3. Both start training simultaneously
-4. The second one to save wins
-The _is_training flag would prevent this. Let me also check the scheduler which has Analyzer._lgb_model = None.
-2. Seed 90d history from CoinGecko - not yet implemented (no seed script exists)
-3. More hourly candles for ML - passive wait
-Let me look at the current git log to see what was deployed and what's pending.
-# Check recent git history
-$ git log --oneline -20
-8a4d6bb Add Session 35: Mini App restructuring with 4 grouped tabs
-39001ed Restructure Mini App nav: 4 tabs with grouped sub-tabs
-744e26c Update HistoryDev.md with commit hash for Session 34
-b3b86e6 Fix P0/P1: PriceBuffer data loss, return_exceptions logging, SQL injection, duplicate route
-eb67a7e Feed live market context to AI in /ask: price, RSI, MA50/200, Fear & Greed, signal
-34c5b01 Fix /ask UX: remove cooldown silence, show 'thinking' message immediately, delete on answer
-d011671 Fix /ask rate limit: move cooldown timer AFTER response, add pending set for in-flight requests
-288c303 Fix /ask no response: remove Markdown parsing for AI-generated content (contains _ * chars that break Telegram parser)
-d266ae9 Fix /alerts Markdown parse error: remove **{} around dynamic content to prevent unclosed entities
-95d28ff Add personalized price alerts (DB + bot + scheduler)
-…
-Click to expand
-# Check uncommitted changes
-$ git diff HEAD --name-only
-warning: in the working copy of 'miniapp/app.js', LF will be replaced by CRLF the next time Git touches it
-miniapp/app.js
-miniapp/index.html
-warning: in the working copy of 'miniapp/index.html', LF will be replaced by CRLF the next time Git touches it
-✱ Grep "_is_training" in .
-✱ Glob "scripts/**" in . (1 match)
+
+---
+
+## Сессия 36 — Исправление багов и фич (10.05.2026)
+
+### Участники
+- Главный разработчик — исправление
+
+### 36.1 Mini App: Indicators tab — бесконечный рендеринг
+**Проблема:** вкладка Индикаторы пустая, бесконечный рендеринг.
+**Причина:** `renderDashboard()` вызывал `render()` (замена всего `#content`) вместо `renderSub()` (только `#sub-content`). Это уничтожало `#indicators-chart` и `.sub-tabs` при каждом 30-секундном опросе.
+**Фикс:** `render()` → `renderSub()` для скелетона в `renderDashboard()`.
+
+### 36.2 Mini App: News/Timothy tab — пустое окно
+**Проблема:** вкладка Timothy показывала неверный контент.
+**Причина:** Telegram WebView кешировал старый `app.js`; cache-bust `v=20260510.3` не обновлялся.
+**Фикс:** cache-bust → `v=20260510.4`, затем `v=20260510.5`, затем `v=20260510.6`.
+
+### 36.3 График: нерабочие таймфреймы (1H, 1D, 1W)
+**Проблема:** график работал только для 4H, остальные таймфреймы — HTTP 500.
+**Причина:** SQL-инъекционный фикс заменил `time_bucket('1 hour', bucket)` на `time_bucket($3::text, bucket)`. Но TimescaleDB не имеет перегрузки `time_bucket(text, timestamptz)` — только `time_bucket(interval, timestamptz)`. Плюс `GROUP BY` содержал второй `$3::text`.
+**Фикс:** `$3::text` → f-строка `'{interval}'::interval` (interval из доверенного `bucket_map`, не пользовательский ввод).
+
+### 36.4 Postgres: password authentication failed
+**Проблема:** все контейнеры теряли подключение к БД с ошибкой `InvalidPasswordError`.
+**Причина:** `pg_hba.conf` требовал `scram-sha-256`, но пароль postgres был не в том формате. Контейнеры, запущенные давно, держали старые соединения; новые — падали.
+**Фикс:** изменён `pg_hba.conf` → `trust` для Docker-сети (172.16.0.0/12), пароль сброшен через `ALTER USER`.
+
+### 36.5 Timothy Peterson — новости через AI
+**Проблема:** вкладка 🐦 Timothy показывала заглушку «⏳ Источник настраивается...».
+**Реализация:**
+- `GET /miniapp/news/timothy` — endpoint, вызывающий OpenCode-агента (DeepSeek V4 Pro) с системным промптом в стиле Timothy Peterson (Metcalfe's Law, LPF)
+- Кеш Redis на 1 час
+- Прогрев кеша при старте API (`_warmup_timothy_cache`)
+- **Баг:** DeepSeek V4 Pro возвращал ответ в `reasoning_content`, а не в `content` → добавлено чтение обоих полей
+- **Баг:** AI генерировал вымышленные цены ($66,000) → в промпт добавлены реальные данные (текущая цена, RSI, MA50/MA200 из БД)
+
+### 36.6 /alerts — серия исправлений
+1. **Markdown parse error** — незакрытый `*Подписки*` на двух строках (38 и 48)
+2. **/subscribe пропал из меню** — не было volume-mount для `bot/`, изменения требовали пересборки образа
+3. **MarkdownV2** — скобки `()` в форматных строках нужно экранировать `\(`, `\)`; спецсимволы в динамических данных (`_` в `ma_cross`) ломали парсер
+4. **HTML parse_mode** — финальное решение: переписан на `parse_mode="HTML"` с экранированием только `<`, `>`, `&`
+5. **Кнопки отписки** — вместо текстовых `/alert_remove` команд → inline-кнопки `❌ RSI`, `❌ MA Cross` и т.д.; добавлен обработчик `del_price_` для ценовых сигналов
+
+### Коммиты сессии 36
+```
+839fb0b Fix Mini App bugs: indicators blank tab + news/timothy stale cache
+98ce68f Fix indicators tab: render() destroyed page structure, use renderSub() for skeleton
+e5c0c79 Fix time_bucket: text to interval cast for non-4H chart timeframes
+22c6c34 Fix time_bucket GROUP BY clause still using ::text; use f-string with trusted bucket_map values
+1235040 Implement Timothy Peterson news tab via OpenCode agent API
+450d472 Fix Timothy news timeout: 120s fetch + cache warmup at startup
+cde0abe Fix empty Timothy response: handle reasoning_content from DeepSeek
+58f5174 Inject real-time BTC price + RSI + MA into Timothy Peterson AI prompt
+71fe42b Fix /alerts Markdown parse error + add /subscribe to menu
+62aa957 Fix second Markdown parse error in /alerts (line 48)
+942b7da Fix /alerts: remove Markdown parse_mode from dynamic subscription list
+59253d7 Restore Markdown styling in /alerts with proper escaping of dynamic data
+be88004 Fix MarkdownV2: escape literal parentheses in /alerts format strings
+425ac0a Switch /alerts and /subscribe from MarkdownV2 to HTML parse_mode
+a3966da Replace /alerts text commands with inline buttons for unsubscribe
+```
+
+### Текущее состояние после сессии 36
+- `/alerts` работает с HTML-форматированием и inline-кнопками отписки
+- `/subscribe` в меню, работает
+- Mini App: все 4 вкладки работают (Индикаторы, AI, Мини App, Новости)
+- График: все таймфреймы (1H, 4H, 1D, 1W) работают
+- Timothy Peterson: AI-анализ с реальными рыночными данными, кеш 1 час
+- Postgres: `trust` для Docker-сети, проблем с подключением нет
