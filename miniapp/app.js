@@ -899,7 +899,7 @@ function renderNewsPage(sub) {
 async function renderTimothyNews() {
   renderSub('<div class="card"><div class="spinner"></div><p style="color:var(--hint);">Загрузка анализа Timothy Peterson...</p></div>');
   try {
-    const data = await apiCall('/miniapp/news/timothy');
+    const data = await apiCall('/miniapp/news/timothy', {}, 120000);
     const text = data.text || 'Нет данных.';
     renderSub('<div class="card"><div class="card-title">🐦 Timothy Peterson</div><div style="white-space:pre-wrap;line-height:1.7;">' + escapeHtml(text) + '</div><div style="margin-top:12px;font-size:11px;color:var(--hint);">♻️ Кеш: 1 час</div></div>');
   } catch (e) {

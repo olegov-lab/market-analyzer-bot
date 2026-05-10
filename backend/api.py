@@ -60,6 +60,7 @@ async def startup():
     fear_greed = FearGreedIndex(redis_client)
     asyncio.create_task(analyzer.warmup_cache())
     asyncio.create_task(_cleanup_old_tasks())
+    asyncio.create_task(_warmup_timothy_cache())
 
 
 @app.on_event("shutdown")
@@ -253,6 +254,47 @@ async def miniapp_unsubscribe(request: Request, sub_id: int, alert_type: str):
 
 
 # ─── Async AI task store (polling-based) ──────────────────────────
+
+async def _warmup_timothy_cache():
+    """Pre-fill Timothy news cache at startup so first user request is instant."""
+    cache_key = "news:timothy"
+    if redis_client and await redis_client.exists(cache_key):
+        return
+    try:
+        system_prompt = (
+            "You are Timothy Peterson, a renowned Bitcoin analyst and author of the paper "
+            "'Metcalfe's Law as a Model for Bitcoin's Value'. You are known for the Lowest Price "
+            "Forward (LPF) indicator and modeling BTC price using network effects. "
+            "Your analysis style: data-driven, quantitative, skeptical of hype, focused on long-term "
+            "trends, Metcalfe's Law, hash rate, and adoption curves. Answer in Russian, "
+            "be concise (300-400 words). Provide a current Bitcoin market analysis in your signature style — "
+            "include perspective on valuation vs Metcalfe's Law, key support/resistance levels, "
+            "and a short-term outlook."
+        )
+        prompt = (
+            "Give a brief Bitcoin market analysis in your signature Timothy Peterson style. "
+            "Include your view on current valuation relative to Metcalfe's Law, "
+            "key support/resistance levels, and near-term outlook. "
+            "Write in Russian, 300-400 words, factual with numbers where relevant."
+        )
+        client = _get_client()
+        resp = await client.chat.completions.create(
+            model="deepseek-v4-pro",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.7,
+            max_tokens=2048,
+        )
+        text = resp.choices[0].message.content or ""
+        result = {"text": text, "source": "Timothy Peterson via AI"}
+        if redis_client:
+            await redis_client.setex(cache_key, 3600, json.dumps(result, ensure_ascii=False))
+        logger.info("Timothy news cache warmed up")
+    except Exception as e:
+        logger.warning(f"Timothy cache warmup skipped: {e}")
+
 
 _ask_tasks: dict[str, dict] = {}
 _ask_tasks_lock = asyncio.Lock()
