@@ -5,6 +5,11 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from bot.state import db, dp, menu_kb, _ts
 
 
+def _esc(text: str) -> str:
+    """Escape dynamic text for MarkdownV2."""
+    return text.replace("\\", "\\\\").replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("]", "\\]").replace("(", "\\(").replace(")", "\\)").replace("~", "\\~").replace("`", "\\`").replace(">", "\\>").replace("#", "\\#").replace("+", "\\+").replace("-", "\\-").replace("=", "\\=").replace("|", "\\|").replace("{", "\\{").replace("}", "\\}").replace(".", "\\.").replace("!", "\\!")
+
+
 @dp.message(Command(commands=["subscribe"]))
 async def subscribe(message: Message):
     builder = InlineKeyboardBuilder()
@@ -45,13 +50,13 @@ async def alerts(message: Message):
         )
         return
 
-    parts = [f"🔔 BTC Monitor · Подписки", "", _ts(), ""]
+    parts = [f"🔔 *BTC Monitor* · Подписки", "", _ts(), ""]
 
     if subs:
         parts.append("── Алерты ──")
         for sub in subs:
             for at in sub["alert_types"]:
-                parts.append(f"▸ {at} ({sub['symbol']}) — удалить: /alert_remove {sub['id']}")
+                parts.append(f"▸ {_esc(at)} ({_esc(sub['symbol'])}) — удалить: /alert\\_remove {sub['id']}")
         parts.append("")
 
     if price_alerts_list:
@@ -59,11 +64,11 @@ async def alerts(message: Message):
         for a in price_alerts_list:
             dir_text = {"above": "выше", "below": "ниже", "any": "пересечёт"}.get(a["direction"], "?")
             status = "✅ сработал" if a["triggered"] else "⏳ ожидание"
-            parts.append(f"▸ ${a['target_price']:,.0f} ({dir_text}) — {status}")
+            parts.append(f"▸ ${a['target_price']:,.0f} ({_esc(dir_text)}) — {_esc(status)}")
             if not a["triggered"]:
-                parts.append(f"  удалить: /alert_remove {a['id']}")
+                parts.append(f"  удалить: /alert\\_remove {a['id']}")
 
-    await message.answer("\n".join(parts), reply_markup=menu_kb)
+    await message.answer("\n".join(parts), parse_mode="MarkdownV2", reply_markup=menu_kb)
 
 
 @dp.callback_query(lambda c: c.data.startswith("sub_"))
