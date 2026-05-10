@@ -45,7 +45,7 @@ async def alerts(message: Message):
         )
         return
 
-    parts = [f"🔔 *BTC Monitor* · Подписки", "", _ts(), ""]
+    parts = [f"🔔 BTC Monitor · Подписки", "", _ts(), ""]
 
     if subs:
         parts.append("── Алерты ──")
@@ -63,7 +63,7 @@ async def alerts(message: Message):
             if not a["triggered"]:
                 parts.append(f"  удалить: /alert_remove {a['id']}")
 
-    await message.answer("\n".join(parts), parse_mode="Markdown", reply_markup=menu_kb)
+    await message.answer("\n".join(parts), reply_markup=menu_kb)
 
 
 @dp.callback_query(lambda c: c.data.startswith("sub_"))
