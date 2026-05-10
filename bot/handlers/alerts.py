@@ -35,7 +35,7 @@ async def alerts(message: Message):
 
     if not subs and not price_alerts_list:
         await message.answer(
-            "🔔 *BTC Monitor* · Подписки*\n\n"
+            "🔔 *BTC Monitor* · Подписки\n\n"
             "❌ У вас нет активных подписок\n\n"
             "▪ /subscribe — алерты на RSI, MA Cross, Volume\n"
             "▪ /alert 100000 — ценовой сигнал\n\n"
