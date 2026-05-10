@@ -287,7 +287,10 @@ async def _warmup_timothy_cache():
             temperature=0.7,
             max_tokens=2048,
         )
-        text = resp.choices[0].message.content or ""
+        msg = resp.choices[0].message
+        text = msg.content or ""
+        reasoning = getattr(msg, "reasoning_content", None) or ""
+        text = text or reasoning or "[empty response]"
         result = {"text": text, "source": "Timothy Peterson via AI"}
         if redis_client:
             await redis_client.setex(cache_key, 3600, json.dumps(result, ensure_ascii=False))
@@ -447,7 +450,10 @@ async def miniapp_news_timothy(request: Request):
             temperature=0.7,
             max_tokens=2048,
         )
-        text = resp.choices[0].message.content or ""
+        msg = resp.choices[0].message
+        text = msg.content or ""
+        reasoning = getattr(msg, "reasoning_content", None) or ""
+        text = text or reasoning or "[empty response]"
         result = {"text": text, "source": "Timothy Peterson via AI"}
     except Exception as e:
         logger.error(f"Timothy news agent error: {e}")
