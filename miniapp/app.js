@@ -18,7 +18,7 @@ try {
       const params = new URLSearchParams(hash.slice(1));
       const rawData = params.get('tgWebAppData') || '';
       initData = decodeURIComponent(rawData);
-      Telegram = { ready: function(){}, expand: function(){}, BackButton: { show: function(){}, hide: function(){}, onClick: function(){} } };
+      Telegram = { ready: function(){}, expand: function(){}, BackButton: { show: function(){}, hide: function(){}, onClick: function(){} }, HapticFeedback: { impactOccurred: function(){} } };
       if (window.history && window.history.replaceState) {
         window.history.replaceState(null, '', window.location.pathname + window.location.search);
       }
@@ -87,7 +87,7 @@ function showError(msg) {
 }
 
 function haptic(style) {
-  try { Telegram.WebApp.HapticFeedback.impactOccurred(style || 'light'); } catch(e) {}
+  try { Telegram.HapticFeedback.impactOccurred(style || 'light'); } catch(e) {}
 }
 
 function navigate(page) {
