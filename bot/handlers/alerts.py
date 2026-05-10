@@ -31,39 +31,39 @@ async def subscribe(message: Message):
 async def alerts(message: Message):
     uid = message.from_user.id
     subs = await db.get_user_subscriptions(uid)
-    price_alerts = await db.get_user_price_alerts(uid)
+    price_alerts_list = await db.get_user_price_alerts(uid)
 
-    if not subs and not price_alerts:
+    if not subs and not price_alerts_list:
         await message.answer(
-            "🔔 *BTC Monitor* · Подписки\n\n"
+            "🔔 *BTC Monitor* · Подписки*\n\n"
             "❌ У вас нет активных подписок\n\n"
-            "▪ `/subscribe` — алерты на RSI, MA Cross, Volume\n"
-            "▪ `/alert 100000` — ценовой сигнал\n\n"
+            "▪ /subscribe — алерты на RSI, MA Cross, Volume\n"
+            "▪ /alert 100000 — ценовой сигнал\n\n"
             f"{_ts()}",
             parse_mode="Markdown",
             reply_markup=menu_kb,
         )
         return
 
-    lines = [f"🔔 *BTC Monitor* · Подписки", "", _ts(), ""]
+    parts = [f"🔔 *BTC Monitor* · Подписки*", "", _ts(), ""]
 
     if subs:
-        lines.append("── Алерты ──")
+        parts.append("── Алерты ──")
         for sub in subs:
             for at in sub["alert_types"]:
-                lines.append(f"▸ **{at}** ({sub['symbol']}) — `/alert_remove {sub['id']}`")
-        lines.append("")
+                parts.append(f"▸ {at} ({sub['symbol']}) — удалить: /alert_remove {sub['id']}")
+        parts.append("")
 
-    if price_alerts:
-        lines.append("── Ценовые сигналы ──")
-        for a in price_alerts:
+    if price_alerts_list:
+        parts.append("── Ценовые сигналы ──")
+        for a in price_alerts_list:
             dir_text = {"above": "выше", "below": "ниже", "any": "пересечёт"}.get(a["direction"], "?")
             status = "✅ сработал" if a["triggered"] else "⏳ ожидание"
-            lines.append(f"▸ ${a['target_price']:,.0f} ({dir_text}) — {status}")
+            parts.append(f"▸ ${a['target_price']:,.0f} ({dir_text}) — {status}")
             if not a["triggered"]:
-                lines.append(f"  🗑 `/alert_remove {a['id']}`")
+                parts.append(f"  удалить: /alert_remove {a['id']}")
 
-    await message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=menu_kb)
+    await message.answer("\n".join(parts), parse_mode="Markdown", reply_markup=menu_kb)
 
 
 @dp.callback_query(lambda c: c.data.startswith("sub_"))
