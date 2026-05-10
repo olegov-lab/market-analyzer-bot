@@ -62,6 +62,30 @@ class Database:
                 await conn.execute("SELECT add_continuous_aggregate_policy('candles_1m', start_offset => INTERVAL '1 day', end_offset => INTERVAL '1 hour', schedule_interval => INTERVAL '1 minute')")
             except Exception:
                 pass
+
+            await conn.execute("""
+                CREATE MATERIALIZED VIEW IF NOT EXISTS candles_4h
+                WITH (timescaledb.continuous) AS
+                SELECT
+                    time_bucket('4 hours', bucket) AS bucket,
+                    symbol,
+                    FIRST(open, bucket) AS open,
+                    MAX(high) AS high,
+                    MIN(low) AS low,
+                    LAST(close, bucket) AS close,
+                    SUM(volume) AS volume
+                FROM candles_1m
+                GROUP BY time_bucket('4 hours', bucket), symbol
+                WITH NO DATA
+            """)
+            try:
+                await conn.execute("SELECT add_continuous_aggregate_policy('candles_4h', start_offset => INTERVAL '7 days', end_offset => INTERVAL '1 hour', schedule_interval => INTERVAL '1 hour')")
+            except Exception:
+                pass
+            try:
+                await conn.execute("CALL refresh_continuous_aggregate('candles_4h', NULL, NULL)")
+            except Exception:
+                pass
             try:
                 await conn.execute("SELECT remove_retention_policy('prices', if_exists => true)")
                 await conn.execute("SELECT add_retention_policy('prices', INTERVAL '180 days')")
@@ -235,18 +259,9 @@ class Database:
     ) -> list[asyncpg.Record]:
         async with self.pool.acquire() as conn:
             return await conn.fetch("""
-                SELECT
-                    time_bucket('4 hours', bucket) AS bucket,
-                    symbol,
-                    FIRST(open, bucket) AS open,
-                    MAX(high) AS high,
-                    MIN(low) AS low,
-                    LAST(close, bucket) AS close,
-                    SUM(volume) AS volume
-                FROM candles_1m
+                SELECT bucket, open, high, low, close, volume
+                FROM candles_4h
                 WHERE symbol = $1 AND bucket >= $2
-                GROUP BY time_bucket('4 hours', bucket), symbol
-                HAVING COUNT(*) >= 1
                 ORDER BY bucket ASC
             """, symbol, since)
 

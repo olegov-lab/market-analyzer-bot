@@ -208,9 +208,8 @@ class Analyzer:
         if len(rows) < 100:
             return None
 
-        df = pd.DataFrame(rows, columns=["time", "symbol", "open", "high", "low", "close", "volume"])
+        df = pd.DataFrame(rows, columns=["time", "open", "high", "low", "close", "volume"])
         df.set_index("time", inplace=True)
-        df.drop(columns=["symbol"], inplace=True)
         return df
 
     async def _get_onchain_df(self, since: datetime) -> pd.DataFrame:
