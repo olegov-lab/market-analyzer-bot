@@ -404,9 +404,9 @@ class Database:
                 interval = bucket_map.get(timeframe)
                 if not interval:
                     return []
-                rows = await conn.fetch("""
+                rows = await conn.fetch(f"""
                     SELECT
-                        time_bucket($3::interval, bucket) AS bucket,
+                        time_bucket('{interval}'::interval, bucket) AS bucket,
                         FIRST(open, bucket) AS open,
                         MAX(high) AS high,
                         MIN(low) AS low,
@@ -414,10 +414,10 @@ class Database:
                         SUM(volume) AS volume
                     FROM candles_1m
                     WHERE symbol = $1
-                    GROUP BY time_bucket($3::text, bucket), symbol
+                    GROUP BY time_bucket('{interval}'::interval, bucket), symbol
                     ORDER BY bucket DESC
                     LIMIT $2
-                """, symbol, limit, interval)
+                """, symbol, limit)
             return [
                 {
                     "time": int(r["bucket"].timestamp()),
