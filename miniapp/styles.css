@@ -20,7 +20,7 @@ body {
   color: var(--text);
   font-size: 14px;
   line-height: 1.5;
-  padding-bottom: 64px;
+  padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
   -webkit-font-smoothing: antialiased;
 }
 
@@ -31,35 +31,51 @@ body {
   position: fixed;
   bottom: 0; left: 0; right: 0;
   display: flex;
+  justify-content: space-around;
   background: var(--bg);
-  border-top: 1px solid var(--border);
+  border-top: 0.5px solid var(--border);
   z-index: 100;
-  padding: 4px 0 env(safe-area-inset-bottom, 4px);
+  padding: 5px 0 0;
+  padding-bottom: calc(5px + env(safe-area-inset-bottom, 0px));
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .nav-btn {
   flex: 1;
+  max-width: 96px;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 1px;
-  padding: 6px 2px;
+  padding: 3px 2px 5px;
   border: none;
   background: transparent;
   color: var(--hint);
-  font-size: 9px;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.2;
   cursor: pointer;
-  transition: color 0.15s;
+  text-align: center;
+  transition: color 0.2s ease;
   -webkit-tap-highlight-color: transparent;
+  outline: none;
+  min-width: 0;
 }
 
-.nav-btn :first-child {
-  font-size: 20px;
-  line-height: 1.2;
+.nav-btn > :first-child {
+  font-size: 22px;
+  line-height: 1;
 }
 
 .nav-btn.active {
   color: var(--btn);
+}
+
+.nav-btn:active {
+  opacity: 0.6;
 }
 
 .nav-btn:active { opacity: 0.5; }
