@@ -1,6 +1,6 @@
 {
   "name": "Market-Brain",
-  "model": "qwen2.5:14b",
+  "model": "DeepSeek V4 Pro",
   "role": "system",
   "style": "structured financial analysis, risk assessment, clarity",
   "instructions": [

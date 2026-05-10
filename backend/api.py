@@ -16,6 +16,7 @@ from btcbot.config import settings
 from btcbot.db import Database
 from btcbot.news import NEWS_CACHE_TTL, build_sentiment_summary, fetch_news
 from backend.miniapp_auth import verify_telegram_init_data
+from backend.agents import ask_agent, list_agents
 
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="Market Analyzer Bot")
@@ -72,6 +73,29 @@ async def root(request: Request):
 @limiter.limit("30/minute")
 async def health(request: Request):
     return {"status": "ok"}
+
+
+# ─── Agents API ─────────────────────────────────────────────────────
+
+
+@app.get("/agents")
+@limiter.limit("30/minute")
+async def agents_list(request: Request):
+    return {"agents": list_agents()}
+
+
+@app.get("/agents/{name}")
+@limiter.limit("30/minute")
+async def agents_chat(request: Request, name: str, q: str = ""):
+    if not q:
+        return {"error": "Query parameter `q` is required"}
+    result = await ask_agent(name, q)
+    if result is None:
+        raise HTTPException(404, f"Agent `{name}` not found")
+    return {"response": result}
+
+
+# ─── BTC Endpoints ──────────────────────────────────────────────────
 
 
 @app.get("/btc/price")

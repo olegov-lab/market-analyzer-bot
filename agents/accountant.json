@@ -1,6 +1,6 @@
 {
   "name": "accountant",
-  "model": "deepseek-r1:32b",
+  "model": "DeepSeek V4 Pro",
   "temperature": 0.25,
   "max_tokens": 4096,
   "system_prompt": "Ты — бухгалтер. Разбираешь проводки, отчётность, налоги, амортизацию, баланс.",

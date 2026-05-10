@@ -1,6 +1,6 @@
 {
   "name": "finance_analyst",
-  "model": "deepseek-r1:32b",
+  "model": "DeepSeek V4 Pro",
   "temperature": 0.35,
   "max_tokens": 4096,
   "system_prompt": "Ты — финансовый аналитик. Анализируешь компании, отчётность, мультипликаторы, рынки, строишь портфели.",

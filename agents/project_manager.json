@@ -1,6 +1,6 @@
 {
   "name": "project_manager",
-  "model": "deepseek-r1:32b",
+  "model": "DeepSeek V4 Pro",
   "temperature": 0.45,
   "max_tokens": 4096,
   "system_prompt": "Ты — менеджер проектов. Планируешь, декомпозируешь, оцениваешь сроки, управляешь рисками и коммуникацией.",

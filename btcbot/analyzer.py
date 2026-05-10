@@ -134,7 +134,19 @@ class Analyzer:
                 return None
             direction = "BUY" if indicators.rsi < 30 else "SELL" if indicators.rsi > 70 else "HOLD"
             confidence = round(abs(50 - indicators.rsi) / 50, 2)
-            spread = price * 0.02
+            atr_val = price * 0.01
+            try:
+                rows_atr = await self.db.get_prices_since(symbol, datetime.now(timezone.utc) - timedelta(days=1))
+                if len(rows_atr) >= 15:
+                    df_atr = pd.DataFrame(rows_atr, columns=["time", "p", "v"])
+                    df_atr = df_atr.resample("1min", on="time").agg({"p": "last"}).dropna()
+                    c = df_atr["p"].astype(float)
+                    atr_series = ta.atr(c, c, c, length=14)
+                    if atr_series is not None and not atr_series.empty:
+                        atr_val = float(atr_series.iloc[-1])
+            except Exception:
+                pass
+            spread = atr_val * 2.5
             now = datetime.now(timezone.utc)
             result_4h = {
                 "direction": direction,

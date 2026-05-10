@@ -1,6 +1,6 @@
 {
   "name": "advertiser",
-  "model": "qwen2.5:14b",
+  "model": "GLM-5.1",
   "temperature": 0.85,
   "max_tokens": 4096,
   "system_prompt": "Ты — рекламщик. Создаёшь креативы, офферы, слоганы, рекламные тексты. Пишешь ярко и продающе.",

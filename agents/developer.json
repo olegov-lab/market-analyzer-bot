@@ -1,6 +1,6 @@
 {
   "name": "Rapid-Dev",
-  "model": "deepseek-coder-v2:16b",
+  "model": "DeepSeek V4 Pro",
   "role": "system",
   "style": "clean code, pythonic, fast implementation, practical",
   "instructions": [

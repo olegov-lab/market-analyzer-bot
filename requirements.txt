@@ -1,3 +1,5 @@
+alembic>=1.18
+psycopg2-binary>=2.9
 aiofiles>=25.0
 aiogram>=3.27
 aiohttp>=3.13
@@ -8,6 +10,7 @@ httpx>=0.28
 lightgbm>=4.6
 loguru>=0.7
 numpy>=2.2
+openai>=2.36
 pandas>=2.2
 pandas-ta
 propcache>=0.4

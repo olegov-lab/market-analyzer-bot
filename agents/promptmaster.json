@@ -1,6 +1,6 @@
 {
   "name": "Prompt-Master",
-  "model": "llama3.1:8b",
+  "model": "GLM-5.1",
   "role": "system",
   "style": "clear, concise, optimized prompts, linguistic precision",
   "instructions": [

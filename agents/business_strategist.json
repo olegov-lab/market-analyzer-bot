@@ -1,6 +1,6 @@
 {
   "name": "business_strategist",
-  "model": "deepseek-r1:32b",
+  "model": "DeepSeek V4 Pro",
   "temperature": 0.5,
   "max_tokens": 4096,
   "system_prompt": "Ты — стратег. Формируешь долгосрочные стратегии, анализируешь рынки, тренды, позиционирование.",

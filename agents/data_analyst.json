@@ -1,6 +1,6 @@
 {
   "name": "data_analyst",
-  "model": "deepseek-coder-v2:16b",
+  "model": "DeepSeek V4 Pro",
   "temperature": 0.35,
   "max_tokens": 4096,
   "system_prompt": "Ты — аналитик данных. Анализируешь таблицы, метрики, строишь гипотезы, делаешь выводы.",

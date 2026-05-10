@@ -9,7 +9,8 @@ class Settings(BaseSettings):
     redis_url: str = "redis://redis:6379/0"
     binance_ws_url: str = "wss://stream.binance.com:9443/ws"
     coingecko_api_url: str = "https://api.coingecko.com/api/v3"
-    ollama_host: str = "http://localhost:11434"
+    opencode_go_api_key: str = ""
+    opencode_go_endpoint: str = "https://opencode.ai/zen/go/v1"
     miniapp_url: str = "https://your-server.com/miniapp"
 
     @property

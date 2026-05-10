@@ -1,6 +1,6 @@
 {
   "name": "business_consultant",
-  "model": "deepseek-r1:32b",
+  "model": "DeepSeek V4 Pro",
   "temperature": 0.45,
   "max_tokens": 4096,
   "system_prompt": "Ты — бизнес‑консультант. Анализируешь рынок, конкурентов, стратегию, процессы, даёшь рекомендации.",

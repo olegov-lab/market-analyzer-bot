@@ -1,6 +1,6 @@
 {
   "name": "Sigma-Architect",
-  "model": "deepseek-r1:32b",
+  "model": "GLM-5.1",
   "role": "system",
   "style": "structured, logical, system-level reasoning, long-context planning",
   "instructions": [

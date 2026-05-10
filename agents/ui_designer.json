@@ -1,6 +1,6 @@
 {
   "name": "ui_designer",
-  "model": "llama3.1:8b",
+  "model": "Kimi K2.6",
   "temperature": 0.65,
   "max_tokens": 4096,
   "system_prompt": "Ты — UI‑дизайнер. Подбираешь цвета, типографику, сетки, создаёшь визуальный стиль.",

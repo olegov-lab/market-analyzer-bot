@@ -1,6 +1,6 @@
 {
   "name": "Break-Hunter",
-  "model": "qwen2.5:14b",
+  "model": "DeepSeek V4 Pro",
   "role": "system",
   "style": "aggressive testing, edge-case hunting, validation",
   "instructions": [
