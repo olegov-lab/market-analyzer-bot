@@ -83,14 +83,14 @@ class Analyzer:
         if cached is not None:
             return IndicatorSet.model_validate_json(cached)
         since = datetime.now(timezone.utc) - timedelta(hours=48)
-        rows = await self.db.get_prices_since(symbol, since)
+        rows = await self.db.get_1m_candles_since(symbol, since)
         if len(rows) < 14:
             logger.warning("Not enough data for indicators: {} rows", len(rows))
             return None
 
         df = pd.DataFrame(rows, columns=["time", "price", "volume"])
         df.set_index("time", inplace=True)
-        df = df.resample("1min").agg({"price": "last", "volume": "sum"}).dropna()
+        df = df.dropna()
         candles = len(df)
 
         closes = df["price"].astype(float)
@@ -138,9 +138,11 @@ class Analyzer:
         if not price:
             return None
 
-        result_4h = await self._predict_4h(symbol)
-        result_1w = await self._predict_1w(symbol)
-        result_long = await self._predict_long(symbol)
+        result_4h, result_1w, result_long = await asyncio.gather(
+            self._predict_4h(symbol),
+            self._predict_1w(symbol),
+            self._predict_long(symbol),
+        )
 
         if not result_4h:
             indicators = await self.compute_indicators(symbol)
@@ -193,20 +195,14 @@ class Analyzer:
         return pred
 
     async def _build_4h_candles(self, symbol: str, since: datetime) -> Optional[pd.DataFrame]:
-        rows = await self.db.get_prices_since(symbol, since)
+        rows = await self.db.get_4h_candles_since(symbol, since)
         if len(rows) < 100:
             return None
 
-        df = pd.DataFrame(rows, columns=["time", "price", "volume"])
+        df = pd.DataFrame(rows, columns=["time", "symbol", "open", "high", "low", "close", "volume"])
         df.set_index("time", inplace=True)
-        df = df.resample("1min").agg({"price": "last", "volume": "sum"}).dropna()
-
-        ohlc = df["price"].resample("4h").ohlc()
-        volume = df["volume"].resample("4h").sum()
-        candles = pd.concat([ohlc, volume], axis=1)
-        candles.columns = ["open", "high", "low", "close", "volume"]
-        candles.dropna(inplace=True)
-        return candles
+        df.drop(columns=["symbol"], inplace=True)
+        return df
 
     async def _get_onchain_df(self, since: datetime) -> pd.DataFrame:
         rows = await self.db.get_all_onchain_metrics_since(since)
@@ -560,23 +556,22 @@ class Analyzer:
             else:
                 mvrv_text = "экстремально переоценён"
 
-        since_year = datetime.now(timezone.utc) - timedelta(days=365 * 4)
-        rows_prices = await self.db.get_prices_since(symbol, since_year)
+        since_1500d = datetime.now(timezone.utc) - timedelta(days=1500)
+        rows_prices = await self.db.get_daily_candles_since(symbol, since_1500d)
         price_vs_200w = None
         price_vs_200w_text = ""
-        if rows_prices and len(rows_prices) > 100:
-            df_p = pd.DataFrame(rows_prices, columns=["time", "price", "volume"])
+        if rows_prices and len(rows_prices) >= 200:
+            df_p = pd.DataFrame(rows_prices, columns=["time", "close"])
             df_p.set_index("time", inplace=True)
-            daily = df_p["price"].resample("1D").last().dropna().astype(float)
-            if len(daily) >= 200:
-                ma200w = daily.rolling(200).mean()
-                current_price = float(daily.iloc[-1])
-                ma200w_val = float(ma200w.iloc[-1])
-                price_vs_200w = round((current_price - ma200w_val) / ma200w_val, 4)
-                if price_vs_200w > 0:
-                    price_vs_200w_text = f"цена на +{abs(price_vs_200w)*100:.0f}% выше MA — бычий тренд"
-                else:
-                    price_vs_200w_text = f"цена на {price_vs_200w*100:.0f}% ниже MA — медвежий тренд"
+            daily = df_p["close"].dropna().astype(float)
+            ma200w = daily.rolling(200).mean()
+            current_price = float(daily.iloc[-1])
+            ma200w_val = float(ma200w.iloc[-1])
+            price_vs_200w = round((current_price - ma200w_val) / ma200w_val, 4)
+            if price_vs_200w > 0:
+                price_vs_200w_text = f"цена на +{abs(price_vs_200w)*100:.0f}% выше MA — бычий тренд"
+            else:
+                price_vs_200w_text = f"цена на {price_vs_200w*100:.0f}% ниже MA — медвежий тренд"
 
         genesis = datetime(2009, 1, 3, tzinfo=timezone.utc)
         halving_interval = timedelta(seconds=210000 * 600)

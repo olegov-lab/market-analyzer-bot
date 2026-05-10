@@ -7,6 +7,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import MenuButtonWebApp, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from loguru import logger
 
 from btcbot.analyzer import Analyzer
 from btcbot.config import settings
@@ -72,6 +73,18 @@ async def on_startup():
         )
     except Exception as e:
         print(f"Failed to set menu button: {e}")
+
+    asyncio.create_task(_warmup_cache())
+
+
+async def _warmup_cache():
+    await asyncio.sleep(1)
+    try:
+        _ = await analyzer.compute_indicators()
+        _ = await analyzer.predict()
+        logger.info("Cache warmed up successfully")
+    except Exception as e:
+        logger.warning("Cache warmup incomplete: {}", e)
 
 
 @dp.shutdown()
@@ -302,8 +315,8 @@ async def predict(message: types.Message):
 
 
 async def _estimate_hours(db: Database, symbol: str) -> float:
-    since = datetime.now(timezone.utc) - timedelta(days=60)
-    rows = await db.get_prices_since(symbol, since)
+    since = datetime.now(timezone.utc) - timedelta(days=7)
+    rows = await db.get_1m_candles_since(symbol, since)
     if not rows:
         return 0.0
     times = [r["time"] for r in rows]

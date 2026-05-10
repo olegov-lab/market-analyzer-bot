@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 from datetime import datetime, timezone
@@ -7,6 +8,7 @@ import redis.asyncio as aioredis
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from loguru import logger
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -54,6 +56,17 @@ async def startup():
     await db.connect()
     redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
     analyzer = Analyzer(db, redis_client)
+    asyncio.create_task(_warmup_cache())
+
+
+async def _warmup_cache():
+    await asyncio.sleep(1)
+    try:
+        _ = await analyzer.compute_indicators()
+        _ = await analyzer.predict()
+        logger.info("Backend cache warmed up")
+    except Exception as e:
+        logger.warning("Backend warmup incomplete: {}", e)
 
 
 @app.on_event("shutdown")
@@ -148,9 +161,11 @@ async def subscribe(request: Request):
 @limiter.limit("30/minute")
 async def miniapp_dashboard(request: Request):
     user_id = await _get_user_id(request)
-    price = await db.get_latest_price("BTCUSD")
-    indicators = await analyzer.compute_indicators()
-    pred = await analyzer.predict()
+    price, indicators, pred = await asyncio.gather(
+        db.get_latest_price("BTCUSD"),
+        analyzer.compute_indicators(),
+        analyzer.predict(),
+    )
     prediction_summary = None
     if pred:
         prediction_summary = {

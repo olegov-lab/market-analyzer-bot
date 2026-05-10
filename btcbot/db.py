@@ -63,7 +63,8 @@ class Database:
             except Exception:
                 pass
             try:
-                await conn.execute("SELECT add_retention_policy('prices', INTERVAL '7 days')")
+                await conn.execute("SELECT remove_retention_policy('prices', if_exists => true)")
+                await conn.execute("SELECT add_retention_policy('prices', INTERVAL '180 days')")
             except Exception:
                 pass
 
@@ -217,6 +218,52 @@ class Database:
                 "SELECT time, price, volume FROM prices WHERE symbol = $1 AND time >= $2 ORDER BY time ASC",
                 symbol, since,
             )
+
+    async def get_1m_candles_since(
+        self, symbol: str, since: datetime
+    ) -> list[asyncpg.Record]:
+        async with self.pool.acquire() as conn:
+            return await conn.fetch("""
+                SELECT bucket as time, close as price, volume
+                FROM candles_1m
+                WHERE symbol = $1 AND bucket >= $2
+                ORDER BY bucket ASC
+            """, symbol, since)
+
+    async def get_4h_candles_since(
+        self, symbol: str, since: datetime
+    ) -> list[asyncpg.Record]:
+        async with self.pool.acquire() as conn:
+            return await conn.fetch("""
+                SELECT
+                    time_bucket('4 hours', bucket) AS bucket,
+                    symbol,
+                    FIRST(open, bucket) AS open,
+                    MAX(high) AS high,
+                    MIN(low) AS low,
+                    LAST(close, bucket) AS close,
+                    SUM(volume) AS volume
+                FROM candles_1m
+                WHERE symbol = $1 AND bucket >= $2
+                GROUP BY time_bucket('4 hours', bucket), symbol
+                HAVING COUNT(*) >= 1
+                ORDER BY bucket ASC
+            """, symbol, since)
+
+    async def get_daily_candles_since(
+        self, symbol: str, since: datetime
+    ) -> list[asyncpg.Record]:
+        async with self.pool.acquire() as conn:
+            return await conn.fetch("""
+                SELECT
+                    time_bucket('1 day', bucket) AS bucket,
+                    LAST(close, bucket) AS close
+                FROM candles_1m
+                WHERE symbol = $1 AND bucket >= $2
+                GROUP BY time_bucket('1 day', bucket), symbol
+                HAVING COUNT(*) >= 1
+                ORDER BY bucket ASC
+            """, symbol, since)
 
     async def get_active_users(self) -> list[asyncpg.Record]:
         async with self.pool.acquire() as conn:
