@@ -78,6 +78,10 @@ class Analyzer:
         self.redis = redis_client
 
     async def compute_indicators(self, symbol: str = "BTCUSD") -> Optional[Any]:
+        cache_key = f"indicators:{symbol}"
+        cached = await self.redis.get(cache_key)
+        if cached is not None:
+            return IndicatorSet.model_validate_json(cached)
         since = datetime.now(timezone.utc) - timedelta(hours=48)
         rows = await self.db.get_prices_since(symbol, since)
         if len(rows) < 14:
@@ -103,7 +107,7 @@ class Analyzer:
 
         now = datetime.now(timezone.utc)
 
-        return IndicatorSet(
+        result = IndicatorSet(
             time=now,
             symbol=symbol,
             rsi=_to_val(rsi_series.iloc[-1] if rsi_series is not None and not rsi_series.empty else None),
@@ -118,8 +122,18 @@ class Analyzer:
             bb_lower=_to_val(bb_df.iloc[-1][[c for c in bb_df.columns if c.startswith("BBL_")][0]] if bb_df is not None and not bb_df.empty else None),
             obv=_to_val(obv_series.iloc[-1] if obv_series is not None and not obv_series.empty else None),
         )
+        try:
+            await self.redis.setex(cache_key, 30, result.model_dump_json())
+        except Exception:
+            pass
+        return result
 
     async def predict(self, symbol: str = "BTCUSD") -> Optional[Prediction]:
+        cache_key = f"prediction:{symbol}"
+        cached = await self.redis.get(cache_key)
+        if cached is not None:
+            return Prediction.model_validate_json(cached)
+
         price = await self.db.get_latest_price(symbol)
         if not price:
             return None
@@ -172,6 +186,10 @@ class Analyzer:
             },
         )
         await self.db.save_prediction(pred)
+        try:
+            await self.redis.setex(cache_key, 300, pred.model_dump_json())
+        except Exception:
+            pass
         return pred
 
     async def _build_4h_candles(self, symbol: str, since: datetime) -> Optional[pd.DataFrame]:
