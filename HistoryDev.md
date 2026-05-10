@@ -2466,3 +2466,64 @@ a3966da Replace /alerts text commands with inline buttons for unsubscribe
 - График: все таймфреймы (1H, 4H, 1D, 1W) работают
 - Timothy Peterson: AI-анализ с реальными рыночными данными, кеш 1 час
 - Postgres: `trust` для Docker-сети, проблем с подключением нет
+
+---
+
+## Сессия 37 — Нижнее меню: glassmorphism + график sub-tab (10.05.2026)
+
+### Участники
+- Главный разработчик — реализация
+- UI Designer (Kimi K2.6) — дизайн меню
+- UX Designer (Kimi K2.6) — UX-сценарии
+
+### 37.1 График как первая sub-tab в Индикаторах
+**Проблема:** график рисовался над sub-tabs, занимал место при любых вкладках.
+**Фикс:** график стал отдельной sub-tab `📊 График` в одном ряду с `💰 Цена`, `🔮 Прогноз`, `🔔 Подписки`. При входе в Индикаторы — сразу график.
+
+- `parseHash()` — default sub `'price'` → `'chart'`
+- `renderIndicatorsPage()` — убран `<div id="indicators-chart">`, добавлен `📊 График` sub-tab; `renderChart()` рендерит через `renderSub()`
+- `renderChart()` — убрана привязка к `#indicators-chart`, использует `renderSub()`
+- `setTimeout(() => renderChart(), 50)` удалён — график только при `sub === 'chart'`
+
+### 37.2 Нижнее меню: 8 попыток → glassmorphism
+**Проблема:** меню было "некрасивое", с горизонтальной полосой прокрутки. 8 попыток обновления CSS не давали результата — Telegram WebView агрессивно кеширует файлы.
+
+**Хронология:**
+1. CSS-правки (0.5px border, 24px иконки) → без изменений
+2. Cache-bust `styles.css?v=...` → без изменений
+3. Переименование `styles.css` → `styles-v2.css` → без изменений
+4. Переименование `styles-v2.css` → `app.css` → без изменений
+5. Агенты UI/UX: индикатор-полоска сверху активной вкладки → без изменений
+6. **Финальное решение:** полный выход из Telegram (очистка WebView-кеша) + glassmorphism-стиль от пользователя
+
+**Финальный CSS:**
+```css
+#bottom-nav {
+  height: 68px;
+  background: rgba(20, 20, 20, 0.82);
+  backdrop-filter: blur(14px);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.nav-btn { color: #888; font-size: 12px; }
+.nav-btn .nav-icon { font-size: 22px; transition: transform 0.25s ease; }
+.nav-btn.active { color: #fff; font-weight: 500; }
+.nav-btn.active .nav-icon { transform: scale(1.2); }
+```
+
+**HTML:** эмодзи обёрнуты в `<span class="nav-icon">` для CSS-таргетинга.
+
+### Коммиты сессии 37
+```
+82ed860 Add chart as first sub-tab in Indicators, default on page open
+324368a Redesign bottom nav in Telegram native style (UI/UX designer review)
+b9aa9ba Add cache-busting to styles.css link
+33468b0 Rename CSS to styles-v2.css to bypass Telegram WebView cache
+26fc452 Rename CSS to app.css + agent-refined bottom nav styles
+d475e21 Telegram-native bottom nav: active indicator bar + refined spacing
+e424e39 Glassmorphism bottom nav: blur, dark panel, icon scale animation
+```
+
+### Текущее состояние после сессии 37
+- Меню: glassmorphism (blur, тёмная панель, масштабирование иконок) ✅
+- График: отдельная sub-tab, первая при входе в Индикаторы ✅
+- Telegram WebView кеш: решается переименованием файлов + выходом из приложения
