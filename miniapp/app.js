@@ -429,13 +429,6 @@ function routePage() {
     return;
   }
 
-  let startY = 0;
-  document.addEventListener('touchstart', e => { startY = e.touches[0].clientY; });
-  document.addEventListener('touchend', e => {
-    const dy = startY - e.changedTouches[0].clientY;
-    if (dy < -80 && window.scrollY <= 0 && getHashPage() === 'price') { renderDashboard(); haptic('medium'); }
-  });
-
   switch (page) {
     case 'price':
       startPoll('dashboard', renderDashboard, 30000);
