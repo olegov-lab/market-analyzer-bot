@@ -238,6 +238,32 @@
 - Redis-кеш: индикаторы 30с, прогнозы 5 мин
 - `asyncio.gather` для `_predict_4h`, `_predict_1w`, `_predict_long`
 
+## Сессия 34: 5 надёжностных фиксов (11.05.2026)
+- P0: Telegram Stars — `/upgrade` → `sendInvoice(XTR)` → `pre_checkout` → `successful_payment` → `activate_pro/pro_plus`. Новый файл `bot/handlers/subscribe.py`
+- P0: `_ask_tasks` dict → Redis `btc:ask:{task_id}` (TTL 600с). Mini App AI-чат переживает рестарт API. Убран `_cleanup_old_tasks()`
+- P1: `VolumeTracker` — `list` → `collections.deque`, prune раз в 30с вместо каждого тика. O(n) на тик → O(1)
+- P2: `_user_pending: set` → Redis `btc:ask:pending:{uid}` (TTL 120с). Бот `/ask` переживает рестарт
+- P2: `network_mode: host` — iptables ACCEPT + MASQUERADE испробованы, Network unreachable на уровне хостера. Оставлен host
+
+## Сессия 35: Фаза 3 — AI Evolution (11.05.2026)
+### 3.1 [CHART] маркеры в AI-ответах
+- `agents/marketbrain.json` — инструкция: `[CHART:1d:MA200]` в ответах
+- `bot/handlers/ask.py` — парсинг маркеров → inline-клавиатура с WebApp-кнопками
+- `miniapp/app.js` — `parseHash()` deep-link `#indicators/chart/1d/MA200`, `_addChartOverlay()` (MA50/MA200/BB/RSI/VOL), JS-расчёт индикаторов из свечей
+
+### 3.2 Проактивные алерты
+- `btcbot/breakout.py` (новый) — `ProactiveAlertEngine`: 7 триггеров (MA cross, BB touch, RSI/MVRV/F&G экстрим, vol/funding spike), Redis cooldowns 2h-24h
+- `btcbot/scheduler.py` — проверка каждые 2 мин, сохранение в очередь `btc:proactive:queue`
+- `bot/main.py` — `_proactive_consumer()`: рассылка алертов всем активным юзерам с per-user cooldown 24h
+
+### 3.3 Голосовой ввод
+- `bot/handlers/ask.py` — `F.voice` handler, PRO+ gate. Полная обработка голоса отложена до интеграции Whisper API
+
+### 3.4 AI Daily Story
+- `btcbot/daily_story.py` (новый) — `generate_daily_story()` через Market-Brain с рыночным контекстом
+- `btcbot/scheduler.py` — генерация в 9:00 UTC, кеш в Redis на 24h
+- `bot/main.py` — `_story_consumer()`: рассылка всем активным юзерам
+
 ---
 
 ## Текущее состояние
@@ -248,7 +274,7 @@
 
 **Индикаторы sub-tabs:** 📊 График, 💰 Цена, 🔮 Прогноз, 🔔 Подписки
 
-**Работает:** AI-саммари, AI-чат, консенсус, график (4 таймфрейма), волатильность, Fear & Greed, торговый симулятор, подписки/алерты, уроки, новости с тональностью, Timothy Peterson AI, PRO-триал
+**Работает:** AI-саммари, AI-чат (+ [CHART] маркеры), консенсус, график (4 таймфрейма), волатильность, Fear & Greed, торговый симулятор, подписки/алерты, уроки, новости с тональностью, Timothy Peterson AI, PRO-триал, Stars-оплата, проактивные алерты (7 триггеров), AI Daily Story
 
 **Docker:** 6 контейнеров (postgres, redis, collector, scheduler, api, bot). Сервер Aeza (77.110.104.104, Ubuntu 24.04, 1 vCPU, 2GB)
 
@@ -257,11 +283,9 @@
 **ML:** RSI 53.2, MA50 $81,983, MA200 $81,632, направление HOLD, confidence 28%
 
 **Известные проблемы:**
-- `network_mode: host` для bot (Docker bridge outbound HTTPS заблокирован)
-- In-memory `_ask_tasks` теряется при рестарте
-- `VolumeTracker` список растёт безгранично
+- `network_mode: host` для bot (iptables на уровне хостера блокирует Docker bridge outbound)
 - Нет unit-тестов
-- `chatMessages` массив без кепа
-- `chartDataCache` без инвалидации
+- `chatMessages` массив без кепа (Mini App)
+- `chartDataCache` без инвалидации (Mini App)
 
-**Отложено:** Metcalfe Corridor (active_addresses), геймификация (лиги/турниры/XP), Web3/TON Connect, Shareable Cards, Portfolio Dashboard
+**Отложено:** Metcalfe Corridor, геймификация, Web3/TON Connect, Shareable Cards, Portfolio Dashboard
