@@ -232,6 +232,15 @@ class Analyzer:
 
         price = await self.db.get_latest_price("BTCUSD")
 
+        funding_rate = getattr(indicators, "funding_rate", None)
+        if funding_rate is None:
+            try:
+                fr_rows = await self.db.get_onchain_metric_since("funding_rate", datetime.now(timezone.utc) - timedelta(hours=24))
+                if fr_rows:
+                    funding_rate = float(fr_rows[-1]["value"])
+            except Exception:
+                pass
+
         def vote(name, value, ctx):
             if value is None:
                 return None
@@ -250,7 +259,7 @@ class Analyzer:
         groups = {
             "trend": {"weight": 0.30, "members": {"ma50": (indicators.ma_50, 0.35), "ma200": (indicators.ma_200, 0.35), "macd_signal": (indicators.macd_signal, 0.30)}},
             "momentum": {"weight": 0.25, "members": {"rsi": (indicators.rsi, 0.40), "bb_position": (self._bb_position(indicators, price), 0.30)}},
-            "sentiment": {"weight": 0.20, "members": {"fear_greed": (fng["value"] if fng else None, 0.50), "funding_rate": (indicators.funding_rate, 0.50)}},
+            "sentiment": {"weight": 0.20, "members": {"fear_greed": (fng["value"] if fng else None, 0.50), "funding_rate": (funding_rate, 0.50)}},
         }
 
         group_scores = {}
