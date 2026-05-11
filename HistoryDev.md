@@ -2587,3 +2587,140 @@ a0f4bfa Game lobby: card-based game selection with trading simulator card
 - Mini App: лобби игр + торговый симулятор ✅
 - DB: игровые таблицы, leaderboard materialized view ✅
 - Меню: glassmorphism bottom nav ✅
+
+---
+
+## Сессия 39 — Стратегический роадмап + Фаза 1: UX/UI, монетизация, лимиты (11.05.2026)
+
+### Участники
+- **Sigma-Architect** (GLM-5.1) — архитектурный план на 6 фаз
+- **UI Designer** (Kimi K2.6) — 4-кнопочное меню, цветовая схема, inline-клавиатуры
+- **UX Designer** (Kimi K2.6) — haptic feedback, pull-to-refresh, swipeable cards
+- **Market-Brain** (DeepSeek V4 Pro) — AI-саммари, consensus-алгоритм, проактивные алерты, CHART-маркеры
+- **Business Strategist** (DeepSeek V4 Pro) — монетизация Stars, ценовые тиры, KPI, MVPS
+- Главный разработчик — реализация
+
+### 39.1 Стратегическое планирование
+4 агента дали развёрнутые консультации по 6-пунктовому плану развития. Результат скомпилирован в `ROADMAP.md`.
+
+**Ключевое изменение от Business Strategist:** монетизация должна быть в Фазе 1, а не в Фазе 3. "Монетизацию не откладывают на «когда продукт будет идеальным»."
+
+**Исправленный порядок фаз:**
+1. UX + Монетизация MVP (нед 1–2)
+2. Аналитика + AI-саммари (нед 3–4)
+3. AI-эволюция: голос, проактивные алерты (нед 5–7)
+4. Геймификация: лиги, турниры (нед 8–10)
+5. Web3 / TON Connect (нед 11–13)
+6. Масштабирование: API-first, B2B (нед 14+)
+
+### 39.2 Консультация UI/UX Designer
+- **4 кнопки:** 📊 Аналитика, 🧠 AI Чат, 🎮 Трейдинг, 📰 Новости — зеркальное отражение вкладок Mini App
+- **Inline-клавиатуры:** под `/btc` — [📈 Прогноз] [📊 Волатильность] [🔔 Подписки], под `/portfolio` — [💰 Купить] [📉 Продать] [🏆 Таблица]
+- **Динамическая схема:** CSS-переменные `--sentiment` (зелёный/красный/синий), `data-sentiment` на `<html>`, `setHeaderColor()` + `setBackgroundColor()`
+- **Haptic:** `light` → `medium` на таймфреймах и сделках, `success` на прибыльных закрытиях, `selectionChanged` на sub-tabs
+- **PRO-визуализация:** золотой бейдж, blur-карточки для заблокированных фич
+
+### 39.3 Консультация Market-Brain
+- **AI-саммари:** 5 групп индикаторов (Тренд, Моментум, Волатильность, On-chain, Сентимент) → 2-3 предложения на группу. Строгий промпт с правилами интерпретации
+- **Consensus %:** 13 индикаторов × 4 группы с весами. Каждый голосует +1/-1/0. Итог: `bullish_pct` 0–100%
+- **Проактивные алерты:** 7 триггеров (MA50/MA200 пробой, BB-касание, RSI экстрим, MVRV-зона, F&G-экстрим, всплеск волатильности). Кулдаун на Redis
+- **[CHART] маркеры:** `[CHART:1d:MA200]` → фронтенд заменяет на кликабельную кнопку
+
+### 39.4 Консультация Business Strategist
+- **Ценовые тиры:** PRO — 80 ⭐/мес (290 ₽), PRO+ — 200 ⭐/мес (790 ₽)
+- **FREE:** базовый анализ, 3 AI-вопроса/день, 3 сделки/день
+- **PRO:** ∞ AI, продвинутые алерты, безлимит сделок, бейдж
+- **PRO+:** голос, упреждающие алерты, confidence score ML, персональный дашборд
+- **KPI:** 500 установок → 5+ платящих (1%), MRR 2,800 Stars к фазе 3
+- **Сравнение с конкурентами:** страница `/whypro` (CryptoQuant $50 vs BTC Monitor 80 ⭐)
+
+### 39.5 Реализация Фазы 1: UX/UI + MVPS
+
+#### 39.5.1 Reply-меню: 14 → 4 + 1 кнопок
+**Файлы:** `bot/state.py`, `bot/handlers/menu.py` (new), `bot/handlers/btc.py`, `bot/handlers/ask.py`, `bot/handlers/game.py`, `bot/handlers/news.py`, `bot/handlers/info.py`
+
+```
+Было:  [/btc] [/predict] [/buy] [/sell] [/portfolio] [/leaderboard]
+        [/ask] [/volatility] [/subscribe] [/alerts] [/news] [/learn] [/help]
+
+Стало: [📊 Аналитика] [🧠 AI Чат]
+       [🎮 Трейдинг] [📰 Новости]
+       [❓ Ещё]
+```
+
+- Текст кнопок матчится через `or_f(Command("btc"), F.text == "📊 Аналитика")`
+- `/help` — хаб для `/learn`, `/subscribe`, `/alerts`, `/volatility` (inline-кнопки)
+- Старый `/help` удалён из `info.py`, новый в `menu.py`
+- `/start` — обновлён: 4 команды + триал + "25 AI-агентов"
+- Команды бота обновлены через `set_my_commands()`, описание через `set_my_description()`
+
+#### 39.5.2 Динамическая цветовая схема
+**Файлы:** `miniapp/app.css`, `miniapp/app.js`
+
+CSS-переменные `--sentiment`, `--sentiment-rgb`, `--sentiment-light`, `--sentiment-border`, `--sentiment-glow`:
+- `[data-sentiment="bullish"]` → зелёный (#00c853)
+- `[data-sentiment="bearish"]` → красный (#ff1744)
+- `:root` (neutral) → синий (#2481cc)
+
+JS `setSentiment(direction)` — устанавливает `data-sentiment` на `<html>` и `Telegram.WebApp.setHeaderColor()`. Вызывается из `renderDashboard()`.
+
+Nav-bar `border-top` переведён на `var(--sentiment)`.
+
+#### 39.5.3 MVPS монетизация
+**Файлы:** `btcbot/subscription.py` (new), `btcbot/db.py`
+
+- `Tier` enum: FREE, PRO, PRO_PLUS
+- `user_subscriptions` таблица (user_id, tier, trial_until, pro_until, pro_plus_until)
+- `activate_trial()` — 72-часовой триал при `/start`
+- `get_user_tier()` — читает из БД с приоритетом PRO_PLUS > PRO > trial > FREE
+- `has_feature()` — проверяет доступ к фиче по тиру
+
+#### 39.5.4 Лимиты для FREE
+**Файлы:** `bot/handlers/ask.py`, `bot/handlers/game.py`
+
+- **AI:** 3 вопроса/день. Redis `ask_count:{uid}` TTL 24h. При превышении → сообщение с оффером PRO
+- **Игры:** 3 сделки/день. Redis `trade_count:{uid}` TTL 24h. `_check_trade_limit()` в `buy_cmd` и `sell_cmd`
+
+#### 39.5.5 Haptic upgrade
+**Файл:** `miniapp/app.js`
+
+| Триггер | Было | Стало |
+|---------|------|-------|
+| Переключение таймфрейма | `light` | `medium` |
+| Переключение типа графика | `light` | `medium` |
+| BUY в симуляторе | `light` | `medium` |
+| SELL в симуляторе | `light` | `medium` |
+| Прибыльная сделка | — | `success` |
+
+#### 39.5.6 PRO-бейдж в портфеле
+**Файл:** `bot/handlers/game.py`
+
+`/portfolio` показывает `💰 Портфель 💎 PRO` или `💰 Портфель 👑 PRO+` для платящих.
+
+#### 39.5.7 Баг-фикс: триал через БД, а не Redis
+**Проблема:** `/start` писал триал в Redis, а `get_user_tier()` читал из `user_subscriptions` таблицы.
+**Фикс:** `/start` → `activate_trial(db, uid)` → INSERT в `user_subscriptions`.
+
+### 39.6 Инциденты
+- **PowerShell escaping:** кавычки в SQL-запросах ломались при передаче через SSH — обход через `docker cp` + `docker exec`
+- **Telegram API:** `set_my_commands()` требует `BotCommand` объекты (не tuples) в aiogram 3.x
+- **CSS cache:** `app.css` переименован из `styles.css` в сессии 37 для обхода WebView-кеша
+
+### Коммиты сессии 39
+```
+57c45eb Phase 1: UX rework + MVPS monetization (13 files, +532/-52)
+9276c87 Fix trial activation: use DB (not Redis) for user_subscriptions
+```
+
+### Текущее состояние после сессии 39
+- Меню: 4 кнопки Reply + текст-матчинг ✅
+- Цветовая схема: динамическая (bullish/bearish) ✅
+- PRO-триал: 3 дня при /start ✅
+- Лимиты: 3 AI-вопроса/день, 3 сделки/день ✅
+- Haptic: medium/success ✅
+- PRO-бейдж: в /portfolio ✅
+- ROADMAP.md: полный план на 6 фаз ✅
+- Agents01.md: реестр всех 25 агентов ✅
+- DB fallback: все 5 candle-методов → raw prices при пустых CA ✅
+- DB auto-create: `connect()` создаёт БД если нет ✅
+- Game FK fix: `get_or_create_game_user()` создаёт `users` запись ✅
