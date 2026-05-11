@@ -1,6 +1,8 @@
 import json
+import re
 from datetime import datetime
 from typing import Any, Optional
+from urllib.parse import urlparse, urlunparse
 
 import asyncpg
 from loguru import logger
@@ -12,11 +14,38 @@ class Database:
         self.pool: Optional[asyncpg.Pool] = None
 
     async def connect(self) -> None:
-        self.pool = await asyncpg.create_pool(self.dsn, min_size=2, max_size=10)
+        try:
+            self.pool = await asyncpg.create_pool(self.dsn, min_size=2, max_size=10)
+        except asyncpg.InvalidCatalogNameError:
+            dbname = self._parse_dbname()
+            logger.warning("Database '{}' not found, creating...", dbname)
+            await self._ensure_database(dbname)
+            self.pool = await asyncpg.create_pool(self.dsn, min_size=2, max_size=10)
         await self._init_schema()
         logger.info("Database connected")
 
     async def close(self) -> None:
+        if self.pool:
+            await self.pool.close()
+            logger.info("Database disconnected")
+
+    def _parse_dbname(self) -> str:
+        parsed = urlparse(self.dsn)
+        return parsed.path.lstrip("/") or "postgres"
+
+    async def _ensure_database(self, dbname: str) -> None:
+        parsed = urlparse(self.dsn)
+        admin_dsn = urlunparse(parsed._replace(path="/postgres"))
+        admin = await asyncpg.connect(admin_dsn)
+        try:
+            exists = await admin.fetchval(
+                "SELECT 1 FROM pg_database WHERE datname = $1", dbname
+            )
+            if not exists:
+                await admin.execute(f"CREATE DATABASE {re.sub(r'[^a-zA-Z0-9_]', '', dbname)}")
+                logger.info("Created database '{}'", dbname)
+        finally:
+            await admin.close()
         if self.pool:
             await self.pool.close()
             logger.info("Database disconnected")
