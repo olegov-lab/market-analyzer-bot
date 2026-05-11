@@ -223,6 +223,13 @@ async function renderDashboard() {
       html += '<div class="card"><div class="card-title">Уверенность прогноза</div><div class="conf-bar"><div class="conf-bar-fill ' + confColor + '" style="width:' + confPct + '%"></div></div><div class="row"><span class="label">' + confPct + '%</span><span class="value">' + (confPct >= 70 ? 'высокая' : confPct >= 40 ? 'средняя' : 'низкая') + '</span></div></div>';
     }
 
+    if (data.consensus && !data.consensus.low_confidence) {
+      const cp = data.consensus.bullish_pct;
+      const sig = data.consensus.signal;
+      const sigLabel = sig === 'strong_bullish' ? 'Сильно бычий' : sig === 'bullish' ? 'Бычий' : sig === 'strong_bearish' ? 'Сильно медвежий' : sig === 'bearish' ? 'Медвежий' : 'Нейтральный';
+      html += '<div class="card"><div class="card-title">Консенсус индикаторов</div><div class="conf-bar"><div class="conf-bar-fill" style="width:' + cp + '%;background:linear-gradient(90deg,#00c853,' + (cp >= 50 ? '#ffc107' : '#ff1744') + ')"></div></div><div class="row"><span class="label">' + cp + '% за рост</span><span class="value">' + sigLabel + '</span></div></div>';
+    }
+
     if (ind) {
       html += '<div class="card"><div class="card-title">Технические индикаторы</div>';
       if (ind.rsi != null) {

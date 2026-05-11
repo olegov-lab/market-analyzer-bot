@@ -209,6 +209,98 @@ class Analyzer:
             pass
         return result
 
+    async def compute_consensus(self) -> dict:
+        """13 indicators × 4 groups. Each votes +1/-1/0. Returns bullish_pct 0-100."""
+        cache_key = "consensus"
+        cached = await self.redis.get(cache_key)
+        if cached:
+            import json
+            return json.loads(cached)
+
+        indicators = await self.compute_indicators()
+        if not indicators:
+            return {"bullish_pct": 50, "signal": "neutral", "available": 0, "low_confidence": True}
+
+        fng = None
+        try:
+            from btcbot.fear_greed import FearGreedIndex
+            fgi = FearGreedIndex(self.redis)
+            fng = await fgi.fetch()
+        except Exception:
+            pass
+
+        price = await self.db.get_latest_price("BTCUSD")
+
+        def vote(name, value, ctx):
+            if value is None:
+                return None
+            rules = {
+                "ma50": lambda: 1 if price and price > value else -1,
+                "ma200": lambda: 1 if price and price > value else -1,
+                "macd_signal": lambda: 1 if indicators.macd and indicators.macd > value else (-1 if indicators.macd and indicators.macd < value else 0),
+                "rsi": lambda: 1 if value < 30 else (-1 if value > 70 else 0),
+                "bb_position": lambda: 1 if value < 20 else (-1 if value > 80 else 0),
+                "funding_rate": lambda: 1 if value < -0.005 else (-1 if value > 0.01 else 0),
+                "fear_greed": lambda: 1 if value < 25 else (-1 if value > 75 else 0),
+            }
+            fn = rules.get(name)
+            return fn() if fn else 0
+
+        groups = {
+            "trend": {"weight": 0.30, "members": {"ma50": (indicators.ma_50, 0.35), "ma200": (indicators.ma_200, 0.35), "macd_signal": (indicators.macd_signal, 0.30)}},
+            "momentum": {"weight": 0.25, "members": {"rsi": (indicators.rsi, 0.40), "bb_position": (self._bb_position(indicators, price), 0.30)}},
+            "sentiment": {"weight": 0.20, "members": {"fear_greed": (fng["value"] if fng else None, 0.50), "funding_rate": (indicators.funding_rate, 0.50)}},
+        }
+
+        group_scores = {}
+        total_available = 0
+        for gname, gconf in groups.items():
+            g_score = 0.0
+            g_available = 0
+            g_weight_sum = 0.0
+            for ind_name, (val, w) in gconf["members"].items():
+                v = vote(ind_name, val, {})
+                if v is not None:
+                    g_score += v * w
+                    g_weight_sum += w
+                    g_available += 1
+                    total_available += 1
+            group_scores[gname] = g_score / g_weight_sum if g_weight_sum > 0 else 0.0
+
+        final = sum(group_scores[g] * groups[g]["weight"] for g in groups)
+        bullish_pct = round((final + 1) / 2 * 100)
+        bullish_pct = max(5, min(95, bullish_pct))
+
+        if bullish_pct >= 70:
+            signal = "strong_bullish"
+        elif bullish_pct >= 55:
+            signal = "bullish"
+        elif bullish_pct >= 45:
+            signal = "neutral"
+        elif bullish_pct >= 30:
+            signal = "bearish"
+        else:
+            signal = "strong_bearish"
+
+        result = {
+            "bullish_pct": bullish_pct,
+            "bearish_pct": 100 - bullish_pct,
+            "signal": signal,
+            "available": total_available,
+            "low_confidence": total_available < 4,
+        }
+        import json
+        await self.redis.setex(cache_key, 60, json.dumps(result))
+        return result
+
+    def _bb_position(self, indicators, price):
+        if not indicators or not price or not indicators.bb_lower or not indicators.bb_upper:
+            return None
+        denom = indicators.bb_upper - indicators.bb_lower
+        if denom == 0:
+            return None
+        return max(0, min(100, (price - indicators.bb_lower) / denom * 100))
+
     async def predict(self, symbol: str = "BTCUSD") -> Optional[Prediction]:
         cache_key = f"prediction:{symbol}"
         cached = await self.redis.get(cache_key)

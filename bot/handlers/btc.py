@@ -46,6 +46,12 @@ async def btc(message: Message):
     lines.append("")
     lines.append(f"▸ **BTC/USD:** ${price:,.0f}")
 
+    consensus = await analyzer.compute_consensus()
+    if consensus and not consensus.get("low_confidence"):
+        cp = consensus["bullish_pct"]
+        c_emoji = "🟢" if cp >= 60 else "🔴" if cp <= 40 else "🟡"
+        lines.append(f"▸ **Консенсус:** {c_emoji} {cp}% индикаторов за рост")
+
     if indicators:
         lines.append("")
         lines.append("── Технические ──")

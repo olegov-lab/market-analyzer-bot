@@ -175,12 +175,14 @@ async def miniapp_dashboard(request: Request):
             "price_max": pred.price_max,
         }
     vol_data = vol.model_dump() if vol else None
+    consensus = await analyzer.compute_consensus()
     return {
         "price": price,
         "indicators": indicators.model_dump() if indicators else None,
         "prediction_summary": prediction_summary,
         "fear_greed": fng,
         "volatility": vol_data,
+        "consensus": consensus,
         "time": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -193,6 +195,32 @@ async def miniapp_fear_greed(request: Request):
     if not fng:
         raise HTTPException(503, "Fear & Greed data unavailable")
     return fng
+
+
+@app.get("/miniapp/consensus")
+@limiter.limit("30/minute")
+async def miniapp_consensus(request: Request):
+    user_id = await _get_user_id(request)
+    return await analyzer.compute_consensus()
+
+
+@app.get("/miniapp/summary")
+@limiter.limit("10/minute")
+async def miniapp_summary(request: Request):
+    user_id = await _get_user_id(request)
+    from btcbot.summarizer import summarize_indicators
+    price = await db.get_latest_price("BTCUSD")
+    indicators = await analyzer.compute_indicators()
+    fng = await fear_greed.fetch()
+    onchain = await analyzer._get_onchain_df()
+    onchain_dict = None
+    if onchain is not None and not onchain.empty:
+        onchain_dict = {
+            "mvrv_z": round(float(onchain.iloc[-1].get("mvrv_z", 0)), 2) if "mvrv_z" in onchain.columns else None,
+            "sopr": round(float(onchain.iloc[-1].get("sopr", 0)), 2) if "sopr" in onchain.columns else None,
+            "nupl": round(float(onchain.iloc[-1].get("nupl", 0)), 2) if "nupl" in onchain.columns else None,
+        }
+    return await summarize_indicators(db, redis_client, price, indicators, fng, onchain_dict)
 
 
 @app.get("/miniapp/predict")
