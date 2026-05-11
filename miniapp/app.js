@@ -118,7 +118,7 @@ function setSentiment(direction) {
 }
 
 function navigate(page, sub) {
-  haptic('light');
+  haptic('medium');
   sub = sub || '';
   const map = {
     'indicators': sub ? '#indicators/' + sub : '#indicators/price',
@@ -641,7 +641,7 @@ async function renderChart() {
 
   document.querySelectorAll('[data-tf]').forEach(btn => {
     btn.addEventListener('click', () => {
-      haptic('medium');
+      haptic('rigid');
       document.querySelectorAll('[data-tf]').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       chartTimeframe = btn.dataset.tf;
@@ -1001,7 +1001,7 @@ async function renderTradingGame() {
     const btnBuy = document.getElementById('btn-buy');
     if (btnBuy) {
       btnBuy.addEventListener('click', async () => {
-        haptic('medium');
+        haptic('heavy');
         const amt = parseFloat(document.getElementById('buy-amount').value);
         if (!amt || amt < 10) { tgShowAlert('Минимальная сумма: $10'); return; }
         btnBuy.disabled = true; btnBuy.textContent = '...';
@@ -1016,11 +1016,11 @@ async function renderTradingGame() {
     const btnSell = document.getElementById('btn-sell');
     if (btnSell) {
       btnSell.addEventListener('click', async () => {
-        haptic('medium');
+        haptic('heavy');
         btnSell.disabled = true; btnSell.textContent = '...';
         try {
           const res = await apiCall('/miniapp/game/sell', { method: 'POST' });
-          if (res.is_win) haptic('success');
+          haptic(res.is_win ? 'success' : 'warning');
           const emoji = res.is_win ? '🎉' : '📉';
           tgShowAlert(emoji + ' ' + (res.pnl >= 0 ? '+' : '') + '$' + fmtPrice(res.pnl) + ' (' + res.pnl_pct + '%)');
           renderTradingGame();
