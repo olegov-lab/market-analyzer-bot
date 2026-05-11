@@ -84,7 +84,7 @@ async def summarize_indicators(
         if fng:
             groups["sentiment"] = (
                 f"Fear & Greed: {fng['value']}/100 ({fng['classification']})\n"
-                f"Funding Rate: {indicators.funding_rate if indicators and indicators.funding_rate else '—'}"
+                f"Funding Rate: {getattr(indicators, 'funding_rate', None) if indicators else None or '—'}"
             )
 
         for group_name, data in groups.items():
