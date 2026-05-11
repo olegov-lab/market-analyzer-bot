@@ -235,7 +235,7 @@ async function renderDashboard() {
       html += '<div class="card"><div class="card-title">🧠 AI Сводка</div>';
       for (var key in data.summary) {
         if (data.summary[key]) {
-          html += '<div class="row"><span class="label">' + (labels[key] || key) + '</span><span class="value" style="font-size:12px;">' + escapeHtml(data.summary[key]) + '</span></div>';
+          html += '<div style="margin-bottom:10px;"><div style="font-size:11px;font-weight:600;color:var(--btn);margin-bottom:2px;">' + (labels[key] || key) + '</div><div style="font-size:12px;color:var(--text);line-height:1.55;">' + escapeHtml(data.summary[key]) + '</div></div>';
         }
       }
       html += '</div>';
