@@ -8,15 +8,17 @@ from loguru import logger
 
 from btcbot.analyzer import Analyzer
 from btcbot.alerts import AlertManager
+from btcbot.breakout import ProactiveAlertEngine, TRIGGERS
 from btcbot.config import settings
 from btcbot.db import Database
 
 
 class Scheduler:
-    def __init__(self, analyzer: Analyzer, alert_manager: AlertManager) -> None:
+    def __init__(self, analyzer: Analyzer, alert_manager: AlertManager, proactive: ProactiveAlertEngine | None = None) -> None:
         self.scheduler = AsyncIOScheduler()
         self.analyzer = analyzer
         self.alert_manager = alert_manager
+        self.proactive = proactive
 
     def start(self) -> None:
         self.scheduler.add_job(
@@ -61,6 +63,19 @@ class Scheduler:
             id="price_alerts",
             replace_existing=True,
         )
+        if self.proactive:
+            self.scheduler.add_job(
+                self._check_proactive_triggers,
+                CronTrigger(minute="*/2"),
+                id="proactive",
+                replace_existing=True,
+            )
+        self.scheduler.add_job(
+            self._generate_daily_story,
+            CronTrigger(hour="9", minute="0"),
+            id="daily_story",
+            replace_existing=True,
+        )
         self.scheduler.start()
         logger.info("Scheduler started")
 
@@ -94,6 +109,35 @@ class Scheduler:
     async def _check_price_alerts(self) -> None:
         await self.alert_manager.check_price_alerts()
 
+    async def _check_proactive_triggers(self) -> None:
+        if not self.proactive:
+            return
+        results = await self.proactive.check_all()
+        for r in results:
+            trigger = r["trigger"]
+            msg = r["message"]
+            if await self.proactive._is_cooldown(trigger):
+                continue
+            await self.proactive._queue_alert(trigger, msg)
+            ttl = TRIGGERS.get(trigger, 7200)
+            await self.proactive._set_cooldown(trigger, ttl)
+            logger.info("Proactive alert queued: {} — {}", trigger, msg[:80])
+
+    async def _generate_daily_story(self) -> None:
+        try:
+            from btcbot.daily_story import generate_daily_story
+            story = await generate_daily_story(self.analyzer.db, self.analyzer.redis, self.analyzer)
+            key = "btc:daily:story:queue"
+            raw = await self.analyzer.redis.get(key)
+            events = json.loads(raw) if raw else []
+            events.append(story)
+            if len(events) > 3:
+                events = events[-3:]
+            await self.analyzer.redis.set(key, json.dumps(events, ensure_ascii=False))
+            logger.info("Daily story generated")
+        except Exception as e:
+            logger.error(f"Daily story generation failed: {e}")
+
     async def _make_prediction_1w(self) -> None:
         logger.info("Computing weekly on-chain prediction")
         try:
@@ -120,7 +164,8 @@ async def main() -> None:
 
     analyzer = Analyzer(db, r)
     alert_manager = AlertManager(db, r, bot)
-    scheduler = Scheduler(analyzer, alert_manager)
+    proactive = ProactiveAlertEngine(db, r)
+    scheduler = Scheduler(analyzer, alert_manager, proactive)
     scheduler.start()
 
     async def _refresh_lb():

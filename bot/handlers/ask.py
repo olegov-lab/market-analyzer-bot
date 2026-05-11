@@ -147,3 +147,23 @@ async def ask(message: Message):
         f"🧠 BTC Monitor · Аналитика\n\n{_ts()}\n\n{clean_response}\n\n♻️ Отвечает Market-Brain на базе AI",
         reply_markup=reply_markup,
     )
+
+
+@dp.message(F.voice)
+async def voice_ask(message: Message):
+    user_id = message.from_user.id
+    is_pro_plus = await has_feature(db, user_id, "voice_input")
+    if not is_pro_plus:
+        await message.answer(
+            "🔒 *BTC Monitor* · Голос\n\n"
+            "Голосовой ввод доступен на тарифе PRO+.\n\n"
+            "💎 Оформите PRO+ за 200 ⭐/мес — `/upgrade_plus`",
+            parse_mode="Markdown",
+            reply_markup=menu_kb,
+        )
+        return
+    await message.answer(
+        "🎤 Голосовой ввод активирован. Обработка голоса будет доступна в следующем обновлении.\n\n"
+        "Пока используйте текстовый ввод: `/ask ваш вопрос`",
+        reply_markup=menu_kb,
+    )

@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import datetime, timedelta, timezone
 
 from aiogram.types import MenuButtonWebApp, WebAppInfo
@@ -91,8 +92,69 @@ async def _daily_news():
             print(f"Daily news broadcast failed: {e}")
 
 
+async def _proactive_consumer():
+    queue_key = "btc:proactive:queue"
+    await asyncio.sleep(30)
+    while True:
+        try:
+            raw = await redis_client.get(queue_key)
+            if raw:
+                events = json.loads(raw)
+                await redis_client.delete(queue_key)
+                for ev in events:
+                    trigger = ev["trigger"]
+                    msg = ev["message"]
+                    users = await db.get_active_users()
+                    sent = 0
+                    for u in users:
+                        uid = u["user_id"]
+                        ck = f"btc:proactive:sent:{trigger}:{uid}"
+                        if await redis_client.exists(ck):
+                            continue
+                        try:
+                            await bot.send_message(uid, msg)
+                            await redis_client.setex(ck, 86400, "1")
+                            sent += 1
+                            await asyncio.sleep(0.05)
+                        except Exception:
+                            pass
+                    if sent:
+                        print(f"Proactive {trigger} sent to {sent} users")
+        except Exception as e:
+            print(f"Proactive consumer error: {e}")
+        await asyncio.sleep(30)
+
+
+async def _story_consumer():
+    key = "btc:daily:story:queue"
+    await asyncio.sleep(60)
+    while True:
+        try:
+            raw = await redis_client.get(key)
+            if raw:
+                stories = json.loads(raw)
+                await redis_client.delete(key)
+                for story in stories:
+                    users = await db.get_active_users()
+                    sent = 0
+                    for u in users:
+                        try:
+                            await bot.send_message(u["user_id"], story, parse_mode="Markdown")
+                            sent += 1
+                            await asyncio.sleep(0.05)
+                        except Exception:
+                            pass
+                    if sent:
+                        print(f"Daily story sent to {sent} users")
+        except Exception as e:
+            print(f"Story consumer error: {e}")
+        await asyncio.sleep(120)
+
+
 async def main():
     asyncio.create_task(_daily_news())
+    asyncio.create_task(_proactive_consumer())
+    asyncio.create_task(_story_consumer())
     await dp.start_polling(bot)
 
 
