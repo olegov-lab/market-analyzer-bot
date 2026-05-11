@@ -176,6 +176,20 @@ async def miniapp_dashboard(request: Request):
         }
     vol_data = vol.model_dump() if vol else None
     consensus = await analyzer.compute_consensus()
+    summary = None
+    try:
+        from btcbot.summarizer import summarize_indicators
+        onchain_dict = None
+        onchain = await analyzer._get_onchain_df()
+        if onchain is not None and not onchain.empty:
+            onchain_dict = {}
+            for col in ("mvrv_z", "sopr", "nupl"):
+                if col in onchain.columns:
+                    v = onchain.iloc[-1].get(col)
+                    onchain_dict[col] = round(float(v), 2) if v is not None and v == v else None
+        summary = await summarize_indicators(db, redis_client, price, indicators, fng, onchain_dict)
+    except Exception:
+        pass
     return {
         "price": price,
         "indicators": indicators.model_dump() if indicators else None,
@@ -183,6 +197,7 @@ async def miniapp_dashboard(request: Request):
         "fear_greed": fng,
         "volatility": vol_data,
         "consensus": consensus,
+        "summary": summary,
         "time": datetime.now(timezone.utc).isoformat(),
     }
 

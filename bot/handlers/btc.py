@@ -4,7 +4,7 @@ from aiogram import F
 from aiogram.filters import Command, or_f
 from aiogram.types import Message
 
-from bot.state import analyzer, db, dp, fear_greed, menu_kb, _ts, _rsi_bar
+from bot.state import analyzer, db, dp, fear_greed, menu_kb, redis_client, _ts, _rsi_bar
 
 
 async def _estimate_hours(db, symbol: str) -> float:
@@ -132,6 +132,24 @@ async def btc(message: Message):
         lines.append("── Рынок ──")
         fg_emoji = "🟢" if fng["value"] >= 50 else "🔴"
         lines.append(f"▸ **Fear & Greed:** {fg_emoji} {fng['value']}/100 — {fng['classification']}")
+
+    try:
+        from btcbot.summarizer import summarize_indicators
+        onchain_sum = None
+        if pred and pred.meta:
+            p1w = pred.meta.get("prediction_1w")
+            if p1w and isinstance(p1w, dict):
+                onchain_sum = {k: p1w.get(k) for k in ("mvrv_z", "sopr", "nupl") if p1w.get(k) is not None}
+        summary = await summarize_indicators(db, redis_client, price, indicators, fng, onchain_sum)
+        if summary and any(v for v in summary.values()):
+            lines.append("")
+            lines.append("── AI Сводка ──")
+            labels = {"trend": "Тренд", "momentum": "Моментум", "volatility": "Волатильность", "onchain": "On-chain", "sentiment": "Сентимент"}
+            for key, text in summary.items():
+                if text:
+                    lines.append(f"▸ **{labels.get(key, key)}:** {text[:200]}")
+    except Exception:
+        pass
 
     lines.append("")
     lines.append("♻️ Обновление: реальное время")

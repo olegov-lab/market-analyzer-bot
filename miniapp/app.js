@@ -230,6 +230,17 @@ async function renderDashboard() {
       html += '<div class="card"><div class="card-title">Консенсус индикаторов</div><div class="conf-bar"><div class="conf-bar-fill" style="width:' + cp + '%;background:linear-gradient(90deg,#00c853,' + (cp >= 50 ? '#ffc107' : '#ff1744') + ')"></div></div><div class="row"><span class="label">' + cp + '% за рост</span><span class="value">' + sigLabel + '</span></div></div>';
     }
 
+    if (data.summary && Object.values(data.summary).some(function(s) { return s; })) {
+      const labels = { trend: 'Тренд', momentum: 'Моментум', volatility: 'Волатильность', onchain: 'On-chain', sentiment: 'Сентимент' };
+      html += '<div class="card"><div class="card-title">🧠 AI Сводка</div>';
+      for (var key in data.summary) {
+        if (data.summary[key]) {
+          html += '<div class="row"><span class="label">' + (labels[key] || key) + '</span><span class="value" style="font-size:12px;">' + escapeHtml(data.summary[key]) + '</span></div>';
+        }
+      }
+      html += '</div>';
+    }
+
     if (ind) {
       html += '<div class="card"><div class="card-title">Технические индикаторы</div>';
       if (ind.rsi != null) {

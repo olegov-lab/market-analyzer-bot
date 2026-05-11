@@ -72,6 +72,7 @@ def _apply_rules(value: Optional[float], rules: list) -> int:
 class Analyzer:
     _lgb_model: Optional[lgb.Booster] = None
     _lgb_lock = threading.Lock()
+    _is_training = False
 
     def __init__(self, db: Database, redis_client: Any) -> None:
         self.db = db
@@ -519,17 +520,43 @@ class Analyzer:
                 except Exception as e:
                     logger.warning("Failed to load model: {}, retraining", e)
 
-        logger.info("Training LightGBM model on last {} days of data", TRAIN_DAYS)
-        model = await self._train_model(symbol, candles)
-        if model:
+            if not Analyzer._is_training:
+                Analyzer._is_training = True
+                do_train = True
+            else:
+                do_train = False
+
+        if do_train:
+            try:
+                logger.info("Training LightGBM model on last {} days of data", TRAIN_DAYS)
+                model = await self._train_model(symbol, candles)
+                if model:
+                    with Analyzer._lgb_lock:
+                        Analyzer._lgb_model = model
+                return model
+            finally:
+                with Analyzer._lgb_lock:
+                    Analyzer._is_training = False
+
+        for _ in range(120):
             with Analyzer._lgb_lock:
-                Analyzer._lgb_model = model
-        return model
+                if Analyzer._lgb_model is not None:
+                    return Analyzer._lgb_model
+            await asyncio.sleep(0.5)
+        return None
 
     async def _get_model(self, symbol: str, candles: pd.DataFrame) -> Optional[lgb.Booster]:
         with Analyzer._lgb_lock:
             if Analyzer._lgb_model is not None:
                 return Analyzer._lgb_model
+
+        if Analyzer._is_training:
+            for _ in range(120):
+                with Analyzer._lgb_lock:
+                    if Analyzer._lgb_model is not None:
+                        return Analyzer._lgb_model
+                await asyncio.sleep(0.5)
+
         return await self._load_or_train_model(symbol, candles)
 
     async def _train_model(self, symbol: str, candles: pd.DataFrame) -> Optional[lgb.Booster]:

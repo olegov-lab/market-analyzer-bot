@@ -1,4 +1,4 @@
-"""Entrypoint: run migrations, then exec the target command."""
+"""Entrypoint: run migrations, optionally seed history, then exec the target command."""
 import os
 import sys
 import subprocess
@@ -17,6 +17,17 @@ def main() -> None:
             print(f"[entrypoint] Migration failed (exit code {result.returncode}), continuing...")
         else:
             print("[entrypoint] Migrations OK")
+
+    if os.environ.get("SEED_HISTORY", "0") == "1":
+        print("[entrypoint] Seeding history...")
+        result = subprocess.run(
+            [sys.executable, "-m", "btcbot.seed_history"],
+            capture_output=False,
+        )
+        if result.returncode == 0:
+            print("[entrypoint] Seed OK")
+        else:
+            print(f"[entrypoint] Seed failed (exit code {result.returncode}), continuing...")
 
     cmd = sys.argv[1:]
     if cmd:
