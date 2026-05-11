@@ -188,8 +188,8 @@ async def miniapp_dashboard(request: Request):
                     v = onchain.iloc[-1].get(col)
                     onchain_dict[col] = round(float(v), 2) if v is not None and v == v else None
         summary = await summarize_indicators(db, redis_client, price, indicators, fng, onchain_dict)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Dashboard summary failed: {}", e)
     return {
         "price": price,
         "indicators": indicators.model_dump() if indicators else None,
