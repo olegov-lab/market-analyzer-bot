@@ -146,15 +146,18 @@ function setActiveNav(page) {
 
 function parseHash() {
   let h = window.location.hash.slice(1);
-  if (!h || h.startsWith('tgWebAppData=')) return { page: 'indicators', sub: 'chart', param: null };
+  if (!h || h.startsWith('tgWebAppData=')) return { page: 'indicators', sub: 'chart', param: null, chartTf: null, chartInd: null };
   const parts = h.split('/');
   if (parts[0] === 'indicators' || parts[0] === '' || !['chat','miniapp','news'].includes(parts[0])) {
-    return { page: 'indicators', sub: parts[1] || 'chart', param: parts[2] || null };
+    const sub = parts[1] || 'chart';
+    const chartTf = (sub === 'chart' && parts[2]) ? parts[2] : null;
+    const chartInd = (sub === 'chart' && parts[3]) ? parts[3] : null;
+    return { page: 'indicators', sub: sub, param: parts[2] || null, chartTf: chartTf, chartInd: chartInd };
   }
-  if (parts[0] === 'chat') return { page: 'chat', sub: null, param: null };
-  if (parts[0] === 'miniapp') return { page: 'miniapp', sub: parts[1] || 'lessons', param: parts[2] || null };
-  if (parts[0] === 'news') return { page: 'news', sub: parts[1] || 'general', param: null };
-  return { page: 'indicators', sub: 'chart', param: null };
+  if (parts[0] === 'chat') return { page: 'chat', sub: null, param: null, chartTf: null, chartInd: null };
+  if (parts[0] === 'miniapp') return { page: 'miniapp', sub: parts[1] || 'lessons', param: parts[2] || null, chartTf: null, chartInd: null };
+  if (parts[0] === 'news') return { page: 'news', sub: parts[1] || 'general', param: null, chartTf: null, chartInd: null };
+  return { page: 'indicators', sub: 'chart', param: null, chartTf: null, chartInd: null };
 }
 
 function startPoll(name, fn, interval) {
@@ -614,6 +617,7 @@ let chartResizeObserver = null;
 let lastCandles = null;
 let chartType = 'candlestick';
 let chartTimeframe = '4h';
+let chartOverlay = null;
 let chartDataCache = {};
 
 function destroyChart() {
@@ -628,7 +632,12 @@ function destroyChart() {
   lastCandles = null;
 }
 
-async function renderChart() {
+async function renderChart(overrideTf, overrideInd) {
+  if (overrideTf && ['1h','4h','1d','1w'].includes(overrideTf)) {
+    chartTimeframe = overrideTf;
+    chartType = 'candlestick';
+  }
+  chartOverlay = overrideInd || null;
   tgBackButton('hide');
   renderSub(`
     <div class="chart-header">
@@ -837,6 +846,12 @@ function initChart(candles) {
 
   chartInstance.timeScale().fitContent();
 
+  if (chartOverlay && candles.length) {
+    setTimeout(function() {
+      try { _addChartOverlay(candles, chartOverlay); } catch(e) {}
+    }, 200);
+  }
+
   const handleResize = () => {
     if (chartInstance && container.clientWidth > 0) {
       chartInstance.applyOptions({
@@ -848,6 +863,103 @@ function initChart(candles) {
   chartResizeObserver = new ResizeObserver(handleResize);
   chartResizeObserver.observe(container);
   window.addEventListener('resize', handleResize);
+}
+
+function _addChartOverlay(candles, indicator) {
+  var closes = candles.map(function(c) { return c.close; });
+  var times = candles.map(function(c) { return c.time; });
+  var len = closes.length;
+
+  if (indicator === 'MA50') {
+    var ma = _calcMA(closes, 50);
+    _addLineSeries(times, ma, '#ff9800', 1);
+  } else if (indicator === 'MA200') {
+    var ma = _calcMA(closes, 200);
+    _addLineSeries(times, ma, '#e040fb', 1);
+  } else if (indicator === 'BB') {
+    var ma20 = _calcMA(closes, 20);
+    var sd = _calcSD(closes, 20, ma20);
+    var upper = ma20.map(function(v, i) { return sd[i] != null ? v + 2 * sd[i] : null; });
+    var lower = ma20.map(function(v, i) { return sd[i] != null ? v - 2 * sd[i] : null; });
+    _addLineSeries(times, upper, 'rgba(255,255,255,0.2)', 1);
+    _addLineSeries(times, ma20, 'rgba(255,255,255,0.5)', 1);
+    _addLineSeries(times, lower, 'rgba(255,255,255,0.2)', 1);
+  } else if (indicator === 'RSI') {
+    var rsi = _calcRSI(closes, 14);
+    _addSubChart(times, rsi, 'RSI(14)', 0, 100, 30, 70);
+  } else if (indicator === 'VOL') {
+    _addSubChart(times, candles.map(function(c) { return c.volume; }), 'Volume', 0, null, null, null);
+  }
+  chartOverlay = null;
+}
+
+function _calcMA(data, period) {
+  var result = new Array(data.length).fill(null);
+  for (var i = period - 1; i < data.length; i++) {
+    var sum = 0;
+    for (var j = 0; j < period; j++) sum += data[i - j];
+    result[i] = sum / period;
+  }
+  return result;
+}
+
+function _calcSD(data, period, ma) {
+  var result = new Array(data.length).fill(null);
+  for (var i = period - 1; i < data.length; i++) {
+    var sumSq = 0;
+    for (var j = 0; j < period; j++) sumSq += Math.pow(data[i - j] - ma[i], 2);
+    result[i] = Math.sqrt(sumSq / period);
+  }
+  return result;
+}
+
+function _calcRSI(prices, period) {
+  var gains = [], losses = [], rsi = new Array(prices.length).fill(null);
+  for (var i = 1; i < prices.length; i++) {
+    var diff = prices[i] - prices[i - 1];
+    gains.push(diff > 0 ? diff : 0);
+    losses.push(diff < 0 ? -diff : 0);
+  }
+  var avgGain = 0, avgLoss = 0;
+  for (var i = 0; i < period; i++) {
+    avgGain += gains[i] || 0;
+    avgLoss += losses[i] || 0;
+  }
+  avgGain /= period;
+  avgLoss /= period;
+  rsi[period] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+  for (var i = period; i < gains.length; i++) {
+    avgGain = (avgGain * (period - 1) + gains[i]) / period;
+    avgLoss = (avgLoss * (period - 1) + losses[i]) / period;
+    rsi[i + 1] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+  }
+  return rsi;
+}
+
+function _addLineSeries(times, values, color, width) {
+  var data = [];
+  for (var i = 0; i < times.length; i++) {
+    if (values[i] != null) data.push({ time: times[i], value: values[i] });
+  }
+  chartInstance.addLineSeries({ color: color, lineWidth: width, priceLineVisible: false }).setData(data);
+}
+
+function _addSubChart(times, values, label, min, max, lowLine, highLine) {
+  var pane = chartInstance.addPane({ height: 120 });
+  var data = [];
+  for (var i = 0; i < times.length; i++) {
+    if (values[i] != null) data.push({ time: times[i], value: values[i] });
+  }
+  chartInstance.addLineSeries({ color: '#2481cc', lineWidth: 2, pane: pane, priceLineVisible: false }).setData(data);
+  if (min != null || max != null) {
+    chartInstance.priceScale(pane).applyOptions({ autoScale: false });
+    if (lowLine != null) {
+      chartInstance.addLineSeries({ color: '#00c853', lineWidth: 1, pane: pane, priceLineVisible: false }).setData(times.map(function(t) { return { time: t, value: lowLine }; }));
+    }
+    if (highLine != null) {
+      chartInstance.addLineSeries({ color: '#ff1744', lineWidth: 1, pane: pane, priceLineVisible: false }).setData(times.map(function(t) { return { time: t, value: highLine }; }));
+    }
+  }
 }
 
 function updateInfoBar(data) {
@@ -883,7 +995,7 @@ function fmtChartVolume(v) {
 }
 
 // ─── Indicators Page ────────────────────────────────────────────────
-function renderIndicatorsPage(sub) {
+function renderIndicatorsPage(sub, chartTf, chartInd) {
   tgBackButton('hide');
   render(`
     <div class="sub-tabs">
@@ -894,7 +1006,7 @@ function renderIndicatorsPage(sub) {
     </div>
     <div id="sub-content"></div>
   `);
-  if (sub === 'chart') renderChart();
+  if (sub === 'chart') renderChart(chartTf, chartInd);
   else if (sub === 'predict') startPoll('indicators_predict', renderPredict, 60000);
   else if (sub === 'alerts') renderAlerts();
   else startPoll('indicators_price', renderDashboard, 30000);
@@ -1051,7 +1163,7 @@ async function renderTradingGame() {
 }
 
 function routePage() {
-  const { page, sub, param } = parseHash();
+  const { page, sub, param, chartTf, chartInd } = parseHash();
   stopAllPolls();
   destroyChart();
 
@@ -1063,7 +1175,7 @@ function routePage() {
   switch (page) {
     case 'indicators':
       setActiveNav('indicators');
-      renderIndicatorsPage(sub);
+      renderIndicatorsPage(sub, chartTf, chartInd);
       break;
     case 'chat':
       renderChat();

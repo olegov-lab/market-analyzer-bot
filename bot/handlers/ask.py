@@ -1,15 +1,32 @@
 from aiogram import F
 from aiogram.filters import Command, or_f
-from aiogram.types import Message
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo
 
 from backend.agents import ask_agent
-from btcbot.subscription import get_ask_count_today, increment_ask_count, has_feature
+from bot.state import analyzer, bot, db, dp, fear_greed, menu_kb, redis_client, _ts
+from btcbot.config import settings
+from btcbot.subscription import get_ask_count_today, has_feature, increment_ask_count
 from btcbot.utils import safe_gather
-from bot.state import analyzer, db, dp, fear_greed, redis_client, menu_kb, _ts
 
 
 PENDING_TTL = 120
 PENDING_PREFIX = "btc:ask:pending:"
+
+CHART_RE = __import__("re").compile(r'\[CHART:(\w+):(\w+)\]')
+
+
+def _parse_chart_markers(text: str) -> tuple[str, list[InlineKeyboardButton]]:
+    buttons = []
+    def replacer(m):
+        tf, ind = m.group(1), m.group(2)
+        url = f"{settings.miniapp_url}#indicators/chart/{tf}/{ind}"
+        buttons.append(InlineKeyboardButton(
+            text=f"📊 {tf}/{ind}",
+            web_app=WebAppInfo(url=url),
+        ))
+        return f"📊 {tf}/{ind}"
+    clean = CHART_RE.sub(replacer, text)
+    return clean, buttons
 
 
 @dp.message(or_f(Command(commands=["ask"]), F.text == "🧠 AI Чат"))
@@ -120,7 +137,13 @@ async def ask(message: Message):
     if len(response) > 4000:
         response = response[:4000] + "..."
 
+    clean_response, chart_buttons = _parse_chart_markers(response)
+    reply_markup = menu_kb
+    if chart_buttons:
+        kb = InlineKeyboardMarkup(inline_keyboard=[chart_buttons])
+        reply_markup = kb
+
     await message.answer(
-        f"🧠 BTC Monitor · Аналитика\n\n{_ts()}\n\n{response}\n\n♻️ Отвечает Market-Brain на базе AI",
-        reply_markup=menu_kb,
+        f"🧠 BTC Monitor · Аналитика\n\n{_ts()}\n\n{clean_response}\n\n♻️ Отвечает Market-Brain на базе AI",
+        reply_markup=reply_markup,
     )
