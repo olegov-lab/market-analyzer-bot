@@ -64,6 +64,7 @@ async def startup():
     asyncio.create_task(analyzer.warmup_cache())
     asyncio.create_task(_cleanup_old_tasks())
     asyncio.create_task(_warmup_timothy_cache())
+    asyncio.create_task(_warmup_summary_cache())
 
 
 @app.on_event("shutdown")
@@ -365,6 +366,25 @@ async def _warmup_timothy_cache():
         logger.info("Timothy news cache warmed up")
     except Exception as e:
         logger.warning(f"Timothy cache warmup skipped: {e}")
+
+
+async def _warmup_summary_cache():
+    await asyncio.sleep(5)
+    cache_key = "summary:indicators"
+    if redis_client and await redis_client.exists(cache_key):
+        return
+    try:
+        from btcbot.summarizer import summarize_indicators
+        price, indicators, fng = await safe_gather(
+            db.get_latest_price("BTCUSD"),
+            analyzer.compute_indicators(),
+            fear_greed.fetch(),
+            log_prefix="summary_warmup",
+        )
+        await summarize_indicators(db, redis_client, price, indicators, fng, None)
+        logger.info("Summary cache warmed up")
+    except Exception as e:
+        logger.warning(f"Summary cache warmup skipped: {e}")
 
 
 _ask_tasks: dict[str, dict] = {}
