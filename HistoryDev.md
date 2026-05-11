@@ -2718,6 +2718,33 @@ Nav-bar `border-top` переведён на `var(--sentiment)`.
 - PRO-триал: 3 дня при /start ✅
 - Лимиты: 3 AI-вопроса/день, 3 сделки/день ✅
 - Haptic: medium/success ✅
+
+### 39.8 Haptic Feedback — доработка (11.05.2026)
+**Проблема:** вибрация в игре была слабо уловимой или отсутствовала.
+
+**Диагностика:**
+1. `Telegram` мог остаться `null` — если ни `window.Telegram.WebApp`, ни `tgWebAppData` в хеше не обнаружены. Добавлен fallback-объект с моком `HapticFeedback`.
+2. `haptic()` вызывал `Telegram.HapticFeedback.impactOccurred()` без проверки существования — добавлен опциональный чейнинг (`Telegram?.HapticFeedback?.impactOccurred`).
+
+**Усиление интенсивности:**
+
+| Триггер | Было | Стало |
+|---------|------|-------|
+| BUY в симуляторе | `medium` | `heavy` |
+| SELL в симуляторе | `medium` | `heavy` |
+| Прибыльная сделка | `success` | `success` |
+| Убыточная сделка | — | `warning` (двойной паттерн) |
+| Переключение таймфрейма | `medium` | `rigid` |
+| Переключение типа графика | `medium` | `rigid` |
+| Переключение вкладок | `light` | `medium` |
+
+**Коммиты:**
+```
+a539782 Fix haptic: ensure Telegram never null, check HapticFeedback exists before calling
+d76ab7c Upgrade haptic: heavy on trades, rigid on timeframe, success/warning on win/loss
+```
+
+- Haptic: heavy/rigid/success/warning ✅
 - PRO-бейдж: в /portfolio ✅
 - ROADMAP.md: полный план на 6 фаз ✅
 - Agents01.md: реестр всех 25 агентов ✅
