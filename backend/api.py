@@ -62,7 +62,6 @@ async def startup():
     fear_greed = FearGreedIndex(redis_client)
     game_engine = GameEngine(db)
     asyncio.create_task(analyzer.warmup_cache())
-    asyncio.create_task(_cleanup_old_tasks())
     asyncio.create_task(_warmup_timothy_cache())
     asyncio.create_task(_warmup_summary_cache())
 
@@ -387,23 +386,16 @@ async def _warmup_summary_cache():
         logger.warning(f"Summary cache warmup skipped: {e}")
 
 
-_ask_tasks: dict[str, dict] = {}
-_ask_tasks_lock = asyncio.Lock()
 _ask_task_counter = 0
 
-async def _cleanup_old_tasks():
-    while True:
-        await asyncio.sleep(300)
-        now = time.time()
-        async with _ask_tasks_lock:
-            expired = [tid for tid, t in _ask_tasks.items() if now - t["created_at"] > 600]
-            for tid in expired:
-                del _ask_tasks[tid]
+ASK_TASK_TTL = 600
+
 
 async def _run_ask_task(task_id: str, question: str, user_id: int):
+    task_key = f"btc:ask:{task_id}"
+    if redis_client:
+        await redis_client.setex(task_key, ASK_TASK_TTL, json.dumps({"status": "running", "result": None}))
     try:
-        async with _ask_tasks_lock:
-            _ask_tasks[task_id]["status"] = "running"
         price, indicators, fng, pred = await safe_gather(
             db.get_latest_price("BTCUSD"),
             analyzer.compute_indicators(),
@@ -431,17 +423,14 @@ async def _run_ask_task(task_id: str, question: str, user_id: int):
             f"Контекст рынка: {ctx}\n\nВопрос пользователя: {question}\n\nОтветь на русском языке, используя контекст если нужно.",
             temperature=0.7,
         )
-        async with _ask_tasks_lock:
+        if redis_client:
             if result and "[Agent error:" not in result:
-                _ask_tasks[task_id]["status"] = "done"
-                _ask_tasks[task_id]["result"] = result
+                await redis_client.setex(task_key, ASK_TASK_TTL, json.dumps({"status": "done", "result": result}, ensure_ascii=False))
             else:
-                _ask_tasks[task_id]["status"] = "error"
-                _ask_tasks[task_id]["result"] = "AI agent temporarily unavailable"
+                await redis_client.setex(task_key, ASK_TASK_TTL, json.dumps({"status": "error", "result": "AI agent temporarily unavailable"}, ensure_ascii=False))
     except Exception as e:
-        async with _ask_tasks_lock:
-            _ask_tasks[task_id]["status"] = "error"
-            _ask_tasks[task_id]["result"] = str(e)
+        if redis_client:
+            await redis_client.setex(task_key, ASK_TASK_TTL, json.dumps({"status": "error", "result": str(e)}, ensure_ascii=False))
 
 
 @app.post("/miniapp/ask")
@@ -453,10 +442,10 @@ async def miniapp_ask(request: Request):
     if not question:
         raise HTTPException(400, "question is required")
     global _ask_task_counter
-    async with _ask_tasks_lock:
-        _ask_task_counter += 1
-        task_id = f"ask_{_ask_task_counter}_{int(time.time())}"
-        _ask_tasks[task_id] = {"status": "pending", "result": None, "created_at": time.time()}
+    _ask_task_counter += 1
+    task_id = f"ask_{_ask_task_counter}_{int(time.time())}"
+    if redis_client:
+        await redis_client.setex(f"btc:ask:{task_id}", ASK_TASK_TTL, json.dumps({"status": "pending", "result": None}))
     asyncio.create_task(_run_ask_task(task_id, question, user_id))
     return {"task_id": task_id}
 
@@ -465,11 +454,12 @@ async def miniapp_ask(request: Request):
 @limiter.limit("120/minute")
 async def miniapp_ask_status(request: Request, task_id: str):
     user_id = await _get_user_id(request)
-    async with _ask_tasks_lock:
-        task = _ask_tasks.get(task_id)
-    if not task:
-        raise HTTPException(404, "Task not found")
-    return {"status": task["status"], "result": task["result"]}
+    task_key = f"btc:ask:{task_id}"
+    if redis_client:
+        data = await redis_client.get(task_key)
+        if data:
+            return json.loads(data)
+    raise HTTPException(404, "Task not found")
 
 
 @app.get("/miniapp/chart")

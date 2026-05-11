@@ -1,5 +1,6 @@
 import asyncio
 import json
+from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -32,12 +33,16 @@ class VolumeTracker:
     def __init__(self, redis_client: Any, window: int = VOLUME_WINDOW) -> None:
         self.redis = redis_client
         self.window = window
-        self._volumes: list[tuple[datetime, float]] = []
+        self._volumes: deque[tuple[datetime, float]] = deque()
+        self._last_prune = datetime.min.replace(tzinfo=timezone.utc)
 
     def add(self, volume: float, now: datetime) -> None:
-        cutoff = now - timedelta(seconds=self.window)
         self._volumes.append((now, volume))
-        self._volumes = [(t, v) for t, v in self._volumes if t > cutoff]
+        if (now - self._last_prune).total_seconds() > 30:
+            cutoff = now - timedelta(seconds=self.window)
+            while self._volumes and self._volumes[0][0] <= cutoff:
+                self._volumes.popleft()
+            self._last_prune = now
 
     async def publish_stats(self, now: datetime) -> None:
         cutoff = now - timedelta(seconds=self.window)

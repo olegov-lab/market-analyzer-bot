@@ -7,7 +7,9 @@ from btcbot.subscription import get_ask_count_today, increment_ask_count, has_fe
 from btcbot.utils import safe_gather
 from bot.state import analyzer, db, dp, fear_greed, redis_client, menu_kb, _ts
 
-_user_pending: set[int] = set()
+
+PENDING_TTL = 120
+PENDING_PREFIX = "btc:ask:pending:"
 
 
 @dp.message(or_f(Command(commands=["ask"]), F.text == "🧠 AI Чат"))
@@ -48,14 +50,16 @@ async def ask(message: Message):
             )
             return
 
-    if user_id in _user_pending:
+    pending_key = f"{PENDING_PREFIX}{user_id}"
+    if redis_client and await redis_client.exists(pending_key):
         await message.answer(
             "⏳ уже отвечаю на предыдущий вопрос",
             reply_markup=menu_kb,
         )
         return
 
-    _user_pending.add(user_id)
+    if redis_client:
+        await redis_client.setex(pending_key, PENDING_TTL, "1")
     if not is_pro:
         await increment_ask_count(redis_client, user_id)
 
@@ -97,7 +101,8 @@ async def ask(message: Message):
     except Exception:
         response = None
 
-    _user_pending.discard(user_id)
+    if redis_client:
+        await redis_client.delete(f"{PENDING_PREFIX}{user_id}")
 
     try:
         await thinking.delete()
