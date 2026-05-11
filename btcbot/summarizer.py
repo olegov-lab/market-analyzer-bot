@@ -1,6 +1,7 @@
 from typing import Optional
 
 import redis.asyncio as aioredis
+from loguru import logger
 
 from btcbot.db import Database
 
@@ -68,7 +69,7 @@ async def summarize_indicators(
                 f"BB: ${indicators.bb_lower:,.0f} / ${indicators.bb_middle:,.0f} / ${indicators.bb_upper:,.0f}\n"
                 f"Позиция в BB: {((price - indicators.bb_lower) / (indicators.bb_upper - indicators.bb_lower) * 100) if indicators.bb_upper and indicators.bb_lower else '—'}%"
             )
-        if indicators.bb_lower and indicators.atr_pct:
+        if indicators.bb_lower and getattr(indicators, "atr_pct", None):
             groups["volatility"] = (
                 f"BB ширина: {(indicators.bb_upper - indicators.bb_lower) / indicators.bb_middle * 100:.1f}%\n"
                 f"ATR: {indicators.atr_pct:.1f}% от цены"
@@ -97,7 +98,7 @@ async def summarize_indicators(
 
         import json
         await redis_client.setex(cache_key, 300, json.dumps(result, ensure_ascii=False))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("summarize_indicators failed: {}", e)
 
     return result
