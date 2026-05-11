@@ -28,6 +28,12 @@ try {
   } catch (_) {}
 }
 
+// Fallback: ensure Telegram is never null (prevents haptic/UI errors)
+if (!Telegram) {
+  Telegram = { ready: function(){}, expand: function(){}, BackButton: { show: function(){}, hide: function(){}, onClick: function(){} }, HapticFeedback: { impactOccurred: function(){} } };
+  initData = '';
+}
+
 async function apiCall(path, options = {}, timeout = 15000) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -94,7 +100,11 @@ function showError(msg) {
 }
 
 function haptic(style) {
-  try { Telegram.HapticFeedback.impactOccurred(style || 'light'); } catch(e) {}
+  try {
+    if (Telegram && Telegram.HapticFeedback && Telegram.HapticFeedback.impactOccurred) {
+      Telegram.HapticFeedback.impactOccurred(style || 'light');
+    }
+  } catch(e) {}
 }
 
 function setSentiment(direction) {
