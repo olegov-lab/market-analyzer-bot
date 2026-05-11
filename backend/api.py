@@ -2,7 +2,7 @@ import asyncio
 import json
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import redis.asyncio as aioredis
@@ -180,13 +180,16 @@ async def miniapp_dashboard(request: Request):
     try:
         from btcbot.summarizer import summarize_indicators
         onchain_dict = None
-        onchain = await analyzer._get_onchain_df()
-        if onchain is not None and not onchain.empty:
-            onchain_dict = {}
-            for col in ("mvrv_z", "sopr", "nupl"):
-                if col in onchain.columns:
-                    v = onchain.iloc[-1].get(col)
-                    onchain_dict[col] = round(float(v), 2) if v is not None and v == v else None
+        try:
+            onchain = await analyzer._get_onchain_df(datetime.now(timezone.utc) - timedelta(days=30))
+            if onchain is not None and not onchain.empty:
+                onchain_dict = {}
+                for col in ("mvrv_z", "sopr", "nupl"):
+                    if col in onchain.columns:
+                        v = onchain.iloc[-1].get(col)
+                        onchain_dict[col] = round(float(v), 2) if v is not None and v == v else None
+        except Exception:
+            pass
         summary = await summarize_indicators(db, redis_client, price, indicators, fng, onchain_dict)
     except Exception as e:
         logger.warning("Dashboard summary failed: {}", e)
