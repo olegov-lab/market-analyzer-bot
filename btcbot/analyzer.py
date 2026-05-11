@@ -465,7 +465,10 @@ class Analyzer:
         oi = df["open_interest"]
         oi_pct = oi / oi.shift(4) - 1
         has_oi_data = (oi != 0).any()
-        df["oi_change"] = oi_pct.where(has_oi_data, df["funding_rate"] * df["volume_change_4h"].fillna(0))
+        if has_oi_data:
+            df["oi_change"] = oi_pct
+        else:
+            df["oi_change"] = df["funding_rate"] * df["volume_change_4h"].fillna(0)
 
         feature_cols = [
             "return_1h", "return_4h", "volatility_4h", "high_low_ratio_4h",
