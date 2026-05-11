@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
-from aiogram.filters import Command
+from aiogram import F
+from aiogram.filters import Command, or_f
 from aiogram.types import Message
 
 from bot.state import analyzer, db, dp, fear_greed, menu_kb, _ts, _rsi_bar
@@ -26,7 +27,7 @@ async def _estimate_ondays(db) -> float:
     return span / 86400
 
 
-@dp.message(Command(commands=["btc"]))
+@dp.message(or_f(Command(commands=["btc"]), F.text == "📊 Аналитика"))
 async def btc(message: Message):
     indicators = await analyzer.compute_indicators()
     price = await db.get_latest_price("BTCUSD")

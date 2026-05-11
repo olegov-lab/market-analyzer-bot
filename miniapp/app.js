@@ -97,6 +97,16 @@ function haptic(style) {
   try { Telegram.HapticFeedback.impactOccurred(style || 'light'); } catch(e) {}
 }
 
+function setSentiment(direction) {
+  const map = { BUY: 'bullish', SELL: 'bearish', HOLD: 'neutral' };
+  const sentiment = map[direction] || 'neutral';
+  document.documentElement.setAttribute('data-sentiment', sentiment);
+  try {
+    const colors = { bullish: '#00c853', bearish: '#ff1744', neutral: '#2481cc' };
+    Telegram.WebApp.setHeaderColor(colors[sentiment]);
+  } catch(e) {}
+}
+
 function navigate(page, sub) {
   haptic('light');
   sub = sub || '';
@@ -167,6 +177,8 @@ async function renderDashboard() {
     let signalClass = 'hold';
     if (signal === 'BUY') signalClass = 'buy';
     else if (signal === 'SELL') signalClass = 'sell';
+
+    setSentiment(signal);
 
     try {
       const colors = { buy: '#00c853', sell: '#ff1744', hold: '#ff9800' };
@@ -619,7 +631,7 @@ async function renderChart() {
 
   document.querySelectorAll('[data-tf]').forEach(btn => {
     btn.addEventListener('click', () => {
-      haptic('light');
+      haptic('medium');
       document.querySelectorAll('[data-tf]').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       chartTimeframe = btn.dataset.tf;
@@ -629,7 +641,7 @@ async function renderChart() {
 
   document.querySelectorAll('[data-ct]').forEach(btn => {
     btn.addEventListener('click', () => {
-      haptic('light');
+      haptic('medium');
       document.querySelectorAll('[data-ct]').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       chartType = btn.dataset.ct;
@@ -979,7 +991,7 @@ async function renderTradingGame() {
     const btnBuy = document.getElementById('btn-buy');
     if (btnBuy) {
       btnBuy.addEventListener('click', async () => {
-        haptic('light');
+        haptic('medium');
         const amt = parseFloat(document.getElementById('buy-amount').value);
         if (!amt || amt < 10) { tgShowAlert('Минимальная сумма: $10'); return; }
         btnBuy.disabled = true; btnBuy.textContent = '...';
@@ -994,10 +1006,11 @@ async function renderTradingGame() {
     const btnSell = document.getElementById('btn-sell');
     if (btnSell) {
       btnSell.addEventListener('click', async () => {
-        haptic('light');
+        haptic('medium');
         btnSell.disabled = true; btnSell.textContent = '...';
         try {
           const res = await apiCall('/miniapp/game/sell', { method: 'POST' });
+          if (res.is_win) haptic('success');
           const emoji = res.is_win ? '🎉' : '📉';
           tgShowAlert(emoji + ' ' + (res.pnl >= 0 ? '+' : '') + '$' + fmtPrice(res.pnl) + ' (' + res.pnl_pct + '%)');
           renderTradingGame();

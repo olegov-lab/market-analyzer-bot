@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from aiogram.types import MenuButtonWebApp, WebAppInfo
 
 from bot.state import bot, db, dp, redis_client, analyzer, _ts
-from bot.handlers import alerts, ask, btc, game, info, learn, news, price_alerts
+from bot.handlers import alerts, ask, btc, game, info, learn, news, price_alerts, menu
 from btcbot.config import settings
 from btcbot.news import build_market_brain_comment, fetch_news
 

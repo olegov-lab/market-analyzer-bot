@@ -194,6 +194,18 @@ class Database:
                 )
             """)
 
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS user_subscriptions (
+                    user_id BIGINT PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+                    tier TEXT NOT NULL DEFAULT 'free',
+                    trial_until TIMESTAMPTZ,
+                    pro_until TIMESTAMPTZ,
+                    pro_plus_until TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+
             # --- Game tables ---
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS game_users (

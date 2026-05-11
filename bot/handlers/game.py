@@ -1,17 +1,39 @@
-from aiogram.filters import Command
+from aiogram import F
+from aiogram.filters import Command, or_f
 from aiogram.types import Message
 
 from btcbot.game import GameEngine
-from bot.state import db, dp, menu_kb
+from btcbot.subscription import get_trade_count_today, increment_trade_count, has_feature, get_user_tier, Tier
+from bot.state import db, dp, redis_client, menu_kb
 
 
 game = GameEngine(db)
+
+
+async def _check_trade_limit(user_id: int, msg_func) -> bool:
+    is_pro = await has_feature(db, user_id, "game_unlimited")
+    if is_pro:
+        return True
+    count = await get_trade_count_today(redis_client, user_id)
+    if count >= 3:
+        await msg_func(
+            "🔒 *BTC Monitor* · Лимит\n\n"
+            "3 сделки в день для бесплатного тарифа.\n\n"
+            "💎 PRO (80 ⭐/мес) — безлимитная торговля + ∞ AI.",
+            parse_mode="Markdown",
+            reply_markup=menu_kb,
+        )
+        return False
+    await increment_trade_count(redis_client, user_id)
+    return True
 
 
 @dp.message(Command(commands=["buy"]))
 async def buy_cmd(message: Message):
     uid = message.from_user.id
     await db.upsert_user(uid, message.from_user.username)
+    if not await _check_trade_limit(uid, message.answer):
+        return
     parts = message.text.split()
     usdt = float(parts[1]) if len(parts) > 1 else 100
     try:
@@ -33,6 +55,8 @@ async def buy_cmd(message: Message):
 async def sell_cmd(message: Message):
     uid = message.from_user.id
     await db.upsert_user(uid, message.from_user.username)
+    if not await _check_trade_limit(uid, message.answer):
+        return
     try:
         result = await game.sell(uid)
         emoji = "🎉" if result["is_win"] else "📉"
@@ -50,13 +74,15 @@ async def sell_cmd(message: Message):
         await message.answer(f"❌ {e}", reply_markup=menu_kb)
 
 
-@dp.message(Command(commands=["portfolio"]))
+@dp.message(or_f(Command(commands=["portfolio"]), F.text == "🎮 Трейдинг"))
 async def portfolio_cmd(message: Message):
     uid = message.from_user.id
     await db.upsert_user(uid, message.from_user.username)
+    tier = await get_user_tier(db, uid)
     p = await game.get_portfolio(uid)
 
-    parts = ["💰 <b>Портфель</b>", ""]
+    badge = " 💎 PRO" if tier == Tier.PRO else " 👑 PRO+" if tier == Tier.PRO_PLUS else ""
+    parts = [f"💰 <b>Портфель{badge}</b>", ""]
     parts.append(f"▪ Стоимость: ${p['total_value']:,.2f}")
     parts.append(f"▪ Кеш: ${p['balance']:,.2f}")
     sign = "+" if p["total_pnl"] >= 0 else ""

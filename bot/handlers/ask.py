@@ -1,21 +1,25 @@
-from aiogram.filters import Command
+from aiogram import F
+from aiogram.filters import Command, or_f
 from aiogram.types import Message
 
 from backend.agents import ask_agent
+from btcbot.subscription import get_ask_count_today, increment_ask_count, has_feature
 from btcbot.utils import safe_gather
-from bot.state import analyzer, db, dp, fear_greed, menu_kb, _ts
+from bot.state import analyzer, db, dp, fear_greed, redis_client, menu_kb, _ts
 
 _user_pending: set[int] = set()
 
 
-@dp.message(Command(commands=["ask"]))
+@dp.message(or_f(Command(commands=["ask"]), F.text == "🧠 AI Чат"))
 async def ask(message: Message):
     text = message.text.strip()
     question = text.removeprefix("/ask").strip()
+    if question == "🧠 AI Чат":
+        question = ""
 
     if not question:
         await message.answer(
-            "🧠 BTC Monitor · Аналитика\n\n"
+            "🧠 *BTC Monitor* · Аналитика\n\n"
             "Задай вопрос о Bitcoin и Market-Brain ответит:\n\n"
             "▪ /ask Почему BTC падает?\n"
             "▪ /ask Что такое MVRV?\n"
@@ -28,6 +32,22 @@ async def ask(message: Message):
 
     user_id = message.from_user.id
 
+    # Check rate limit and subscription
+    is_pro = await has_feature(db, user_id, "ask_unlimited")
+    if not is_pro:
+        ask_count = await get_ask_count_today(redis_client, user_id)
+        if ask_count >= 3:
+            await message.answer(
+                "🔒 *BTC Monitor* · Лимит\n\n"
+                "3 AI-вопроса в день для бесплатного тарифа.\n\n"
+                "🎁 У вас может быть активен 3-дневный PRO триал.\n"
+                "💎 Оформите PRO за 80 ⭐ — ∞ вопросов!\n\n"
+                "/start чтобы проверить триал",
+                parse_mode="Markdown",
+                reply_markup=menu_kb,
+            )
+            return
+
     if user_id in _user_pending:
         await message.answer(
             "⏳ уже отвечаю на предыдущий вопрос",
@@ -36,6 +56,8 @@ async def ask(message: Message):
         return
 
     _user_pending.add(user_id)
+    if not is_pro:
+        await increment_ask_count(redis_client, user_id)
 
     thinking = await message.answer(
         f"⏳ Анализирую рынок…\n\n{_ts()}",

@@ -1,11 +1,12 @@
-from aiogram.filters import Command
+from aiogram import F
+from aiogram.filters import Command, or_f
 from aiogram.types import Message
 
 from bot.state import dp, menu_kb, redis_client, _ts
 from btcbot.news import build_market_brain_comment, fetch_news
 
 
-@dp.message(Command(commands=["news"]))
+@dp.message(or_f(Command(commands=["news"]), F.text == "📰 Новости"))
 async def news_cmd(message: Message):
     articles = await fetch_news(redis_client)
     if not articles:

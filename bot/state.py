@@ -18,16 +18,14 @@ fear_greed = FearGreedIndex(redis_client)
 
 menu_kb = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="/btc"), KeyboardButton(text="/predict")],
-        [KeyboardButton(text="/buy"), KeyboardButton(text="/sell")],
-        [KeyboardButton(text="/portfolio"), KeyboardButton(text="/leaderboard")],
-        [KeyboardButton(text="/ask"), KeyboardButton(text="/volatility")],
-        [KeyboardButton(text="/subscribe"), KeyboardButton(text="/alerts")],
-        [KeyboardButton(text="/news"), KeyboardButton(text="/learn")],
-        [KeyboardButton(text="/help")],
+        [KeyboardButton(text="📊 Аналитика"), KeyboardButton(text="🧠 AI Чат")],
+        [KeyboardButton(text="🎮 Трейдинг"), KeyboardButton(text="📰 Новости")],
+        [KeyboardButton(text="❓ Ещё")],
     ],
     resize_keyboard=True,
 )
+
+HELP_KEYBOARD = {"btc": "📊 Аналитика", "ask": "🧠 AI Чат", "portfolio": "🎮 Трейдинг", "news": "📰 Новости", "help": "❓ Ещё"}
 
 
 def _ts() -> str:
