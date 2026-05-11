@@ -352,29 +352,55 @@ class Database:
         self, symbol: str, since: datetime
     ) -> list[asyncpg.Record]:
         async with self.pool.acquire() as conn:
-            return await conn.fetch("""
+            rows = await conn.fetch("""
                 SELECT bucket as time, close as price, volume
                 FROM candles_1m
                 WHERE symbol = $1 AND bucket >= $2
                 ORDER BY bucket ASC
             """, symbol, since)
+            if not rows:
+                rows = await conn.fetch("""
+                    SELECT time_bucket('1 minute', time) AS time,
+                           LAST(price, time) AS price,
+                           SUM(volume) AS volume
+                    FROM prices
+                    WHERE symbol = $1 AND time >= $2
+                    GROUP BY time_bucket('1 minute', time), symbol
+                    ORDER BY 1 ASC
+                """, symbol, since)
+            return rows
 
     async def get_4h_candles_since(
         self, symbol: str, since: datetime
     ) -> list[asyncpg.Record]:
         async with self.pool.acquire() as conn:
-            return await conn.fetch("""
+            rows = await conn.fetch("""
                 SELECT bucket, open, high, low, close, volume
                 FROM candles_4h
                 WHERE symbol = $1 AND bucket >= $2
                 ORDER BY bucket ASC
             """, symbol, since)
+            if not rows:
+                rows = await conn.fetch("""
+                    SELECT
+                        time_bucket('4 hours', time) AS bucket,
+                        FIRST(price, time) AS open,
+                        MAX(price) AS high,
+                        MIN(price) AS low,
+                        LAST(price, time) AS close,
+                        SUM(volume) AS volume
+                    FROM prices
+                    WHERE symbol = $1 AND time >= $2
+                    GROUP BY bucket, symbol
+                    ORDER BY bucket ASC
+                """, symbol, since)
+            return rows
 
     async def get_daily_candles_since(
         self, symbol: str, since: datetime
     ) -> list[asyncpg.Record]:
         async with self.pool.acquire() as conn:
-            return await conn.fetch("""
+            rows = await conn.fetch("""
                 SELECT
                     time_bucket('1 day', bucket) AS bucket,
                     LAST(close, bucket) AS close
@@ -384,10 +410,21 @@ class Database:
                 HAVING COUNT(*) >= 1
                 ORDER BY bucket ASC
             """, symbol, since)
+            if not rows:
+                rows = await conn.fetch("""
+                    SELECT
+                        time_bucket('1 day', time) AS bucket,
+                        LAST(price, time) AS close
+                    FROM prices
+                    WHERE symbol = $1 AND time >= $2
+                    GROUP BY bucket, symbol
+                    ORDER BY bucket ASC
+                """, symbol, since)
+            return rows
 
     async def get_hourly_candles_since(self, symbol: str, since: datetime) -> list[asyncpg.Record]:
         async with self.pool.acquire() as conn:
-            return await conn.fetch("""
+            rows = await conn.fetch("""
                 SELECT
                     time_bucket('1 hour', bucket) AS bucket,
                     FIRST(open, bucket) AS open,
@@ -401,6 +438,24 @@ class Database:
                 HAVING COUNT(*) >= 1
                 ORDER BY bucket ASC
             """, symbol, since)
+
+            # Fallback: aggregate from raw prices if continuous aggregates are empty
+            if not rows:
+                rows = await conn.fetch("""
+                    SELECT
+                        time_bucket('1 hour', time) AS bucket,
+                        FIRST(price, time) AS open,
+                        MAX(price) AS high,
+                        MIN(price) AS low,
+                        LAST(price, time) AS close,
+                        SUM(volume) AS volume
+                    FROM prices
+                    WHERE symbol = $1 AND time >= $2
+                    GROUP BY bucket, symbol
+                    ORDER BY bucket ASC
+                """, symbol, since)
+
+            return rows
 
     async def get_active_users(self) -> list[asyncpg.Record]:
         async with self.pool.acquire() as conn:
