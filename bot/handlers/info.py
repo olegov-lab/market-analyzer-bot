@@ -3,14 +3,14 @@ from aiogram.types import Message
 
 from bot.state import bot, db, dp, menu_kb, redis_client, _greeting, _ts
 from btcbot.news import fetch_news
+from btcbot.subscription import activate_trial
 
 
 @dp.message(Command(commands=["start"]))
 async def start(message: Message):
     await db.upsert_user(message.from_user.id, message.from_user.username)
     # 3-day free PRO trial
-    trial_key = f"trial:{message.from_user.id}"
-    await redis_client.setex(trial_key, 259200, "1")  # 72 hours
+    await activate_trial(db, message.from_user.id)
     articles = await fetch_news(redis_client)
     news_part = ""
     if articles:
