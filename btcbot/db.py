@@ -470,6 +470,17 @@ class Database:
     async def get_candles(
         self, symbol: str, timeframe: str, limit: int = 100
     ) -> list[dict]:
+        bucket_map = {
+            "15m": "15 minutes",
+            "1h": "1 hour",
+            "4h": "4 hours",
+            "1d": "1 day",
+            "1w": "1 week",
+        }
+        interval = bucket_map.get(timeframe)
+        if not interval:
+            return []
+
         async with self.pool.acquire() as conn:
             if timeframe == "4h":
                 rows = await conn.fetch("""
@@ -480,15 +491,6 @@ class Database:
                     LIMIT $2
                 """, symbol, limit)
             else:
-                bucket_map = {
-                    "15m": "15 minutes",
-                    "1h": "1 hour",
-                    "1d": "1 day",
-                    "1w": "1 week",
-                }
-                interval = bucket_map.get(timeframe)
-                if not interval:
-                    return []
                 rows = await conn.fetch(f"""
                     SELECT
                         time_bucket('{interval}'::interval, bucket) AS bucket,
@@ -503,6 +505,24 @@ class Database:
                     ORDER BY bucket DESC
                     LIMIT $2
                 """, symbol, limit)
+
+            # Fallback: aggregate from raw prices if continuous aggregates are empty
+            if not rows:
+                rows = await conn.fetch(f"""
+                    SELECT
+                        time_bucket('{interval}'::interval, time) AS bucket,
+                        FIRST(price, time) AS open,
+                        MAX(price) AS high,
+                        MIN(price) AS low,
+                        LAST(price, time) AS close,
+                        SUM(volume) AS volume
+                    FROM prices
+                    WHERE symbol = $1
+                    GROUP BY bucket, symbol
+                    ORDER BY bucket DESC
+                    LIMIT $2
+                """, symbol, limit)
+
             return [
                 {
                     "time": int(r["bucket"].timestamp()),
@@ -519,6 +539,10 @@ class Database:
 
     async def get_or_create_game_user(self, user_id: int) -> asyncpg.Record:
         async with self.pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO users (user_id, username) VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING",
+                user_id, str(user_id),
+            )
             row = await conn.fetchrow("SELECT * FROM game_users WHERE user_id = $1", user_id)
             if not row:
                 row = await conn.fetchrow(
