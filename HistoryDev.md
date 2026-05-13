@@ -437,3 +437,18 @@ General Task — Consult agents on PRO upgrade UI
   - Кнопка 📐 в chart-controls — toggle overlay: 3 линии (upper 🔴, fair 🟡, lower 🟢) на графике
   - `_addLineSeries()` возвращает series для cleanup при переключении
 - **Источник:** blockchain.info `n-unique-addresses` (free, no API key)
+
+## Сессия 41: TON Connect + крипто-оплата (13.05.2026)
+- **Sigma-Architect** спроектировал: DB, 5 API эндпоинтов, UI, флоу оплаты
+- `btcbot/crypto.py` — `TONVerifier`: поиск входящих платежей через TONCenter API, верификация tx_hash
+- `btcbot/config.py` — `TON_RECIPIENT_WALLET`, `TON_PRO_PRICE_TON`, `TON_PRO_PLUS_PRICE_TON`, `TONCENTER_API_URL`
+- `btcbot/db.py` — таблица `crypto_payments` (user_id, amount_nano, tx_hash, tier, status), колонка `ton_wallet` в `user_subscriptions`
+- `backend/api.py` — 5 эндпоинтов:
+  - `GET /crypto/wallet/status` — статус кошелька
+  - `POST /crypto/wallet/link` — привязка TON-адреса
+  - `POST /crypto/payment/create` — создание платежа (ton://transfer URI)
+  - `GET /crypto/payment/{id}` — статус (polling frontend)
+  - `POST /crypto/payment/{id}/verify` — верификация + активация PRO
+- `miniapp/app.js` — селектор оплаты (💎 Stars / 💠 TON), ввод адреса, карточка оплаты, кнопки «Открыть кошелёк» / «Я оплатил», polling статуса каждые 5с
+- `miniapp/app.css` — стили `.payment-method-selector`, `.wallet-chip`, `.payment-address`, `.connect-wallet-wrap`
+- Существующий Stars-флоу не тронут, крипта — альтернативный путь
