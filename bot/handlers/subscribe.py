@@ -1,9 +1,51 @@
 from aiogram import F
 from aiogram.filters import Command
-from aiogram.types import Message, PreCheckoutQuery, LabeledPrice
+from aiogram.types import Message, PreCheckoutQuery, LabeledPrice, ContentType
 
 from bot.state import bot, db, dp, menu_kb
 from btcbot.subscription import activate_pro, activate_pro_plus, get_user_tier, Tier, TIER_PRICES
+
+
+@dp.message(F.content_type == ContentType.WEB_APP_DATA)
+async def web_app_data(message: Message):
+    import json
+    try:
+        data = json.loads(message.web_app_data.data)
+        if data.get("action") != "subscribe":
+            return
+        tier = data.get("tier", "pro")
+    except Exception:
+        return
+
+    user_tier = await get_user_tier(db, message.from_user.id)
+    if tier == "pro" and user_tier in (Tier.PRO, Tier.PRO_PLUS):
+        await message.answer("💎 У вас уже активна подписка PRO.", reply_markup=menu_kb)
+        return
+    if tier == "pro_plus" and user_tier == Tier.PRO_PLUS:
+        await message.answer("💎 У вас уже активна подписка PRO+.", reply_markup=menu_kb)
+        return
+
+    if tier == "pro":
+        await bot.send_invoice(
+            chat_id=message.chat.id,
+            title="BTC Monitor PRO",
+            description="Безлимитный AI-чат, продвинутые алерты, безлимит сделок",
+            payload="pro_monthly",
+            currency="XTR",
+            prices=[LabeledPrice(label="PRO на 1 месяц", amount=80)],
+            provider_token="",
+        )
+    elif tier == "pro_plus":
+        await bot.send_invoice(
+            chat_id=message.chat.id,
+            title="BTC Monitor PRO+",
+            description="Всё из PRO + голос, confidence score ML, персональный дашборд",
+            payload="pro_plus_monthly",
+            currency="XTR",
+            prices=[LabeledPrice(label="PRO+ на 1 месяц", amount=200)],
+            provider_token="",
+        )
+    await message.answer("💎 Счёт выставлен в чате выше. Оплатите Telegram Stars для активации.", reply_markup=menu_kb)
 
 
 @dp.message(Command(commands=["upgrade"]))

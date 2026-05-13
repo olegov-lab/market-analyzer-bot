@@ -21,6 +21,7 @@ from btcbot.fear_greed import FearGreedIndex
 from btcbot.game import GameEngine
 from btcbot.lessons import LESSONS
 from btcbot.news import NEWS_CACHE_TTL, build_sentiment_summary, fetch_news
+from btcbot.subscription import get_user_tier
 from btcbot.utils import safe_gather
 from backend.miniapp_auth import verify_telegram_init_data
 from backend.agents import _get_client, ask_agent, list_agents
@@ -300,6 +301,28 @@ async def miniapp_unsubscribe(request: Request, sub_id: int, alert_type: str):
     user_id = await _get_user_id(request)
     await db.remove_alert_type(sub_id, alert_type)
     return {"status": "deleted"}
+
+
+@app.get("/miniapp/subscription/status")
+@limiter.limit("20/minute")
+async def miniapp_subscription_status(request: Request):
+    user_id = await _get_user_id(request)
+    tier = await get_user_tier(db, user_id)
+    tier_str = tier.value
+    async with db.pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT trial_until, pro_until, pro_plus_until FROM user_subscriptions WHERE user_id = $1",
+            user_id,
+        )
+    result = {"tier": tier_str}
+    if row:
+        if row["trial_until"]:
+            result["trial_until"] = row["trial_until"].strftime("%d.%m.%Y %H:%M UTC")
+        if row["pro_until"]:
+            result["pro_until"] = row["pro_until"].strftime("%d.%m.%Y %H:%M UTC")
+        if row["pro_plus_until"]:
+            result["pro_plus_until"] = row["pro_plus_until"].strftime("%d.%m.%Y %H:%M UTC")
+    return result
 
 
 # ─── Async AI task store (polling-based) ──────────────────────────

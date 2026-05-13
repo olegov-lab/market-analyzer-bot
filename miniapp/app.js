@@ -124,11 +124,12 @@ function navigate(page, sub) {
     'indicators': sub ? '#indicators/' + sub : '#indicators/price',
     'miniapp': sub ? '#miniapp/' + sub : '#miniapp/lessons',
     'news': sub ? '#news/' + sub : '#news/general',
+    'upgrade': '#upgrade',
   };
   window.location.hash = map[page] || '#' + page;
 }
 
-document.querySelectorAll('.nav-btn').forEach(btn => {
+document.querySelectorAll('.orbital-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     const page = btn.dataset.page;
     if (page === 'indicators') navigate('indicators', 'price');
@@ -139,8 +140,8 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
 });
 
 function setActiveNav(page) {
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  const btn = document.querySelector('.nav-btn[data-page="' + page + '"]');
+  document.querySelectorAll('.orbital-btn').forEach(b => b.classList.remove('active'));
+  const btn = document.querySelector('.orbital-btn[data-page="' + page + '"]');
   if (btn) btn.classList.add('active');
 }
 
@@ -148,7 +149,7 @@ function parseHash() {
   let h = window.location.hash.slice(1);
   if (!h || h.startsWith('tgWebAppData=')) return { page: 'indicators', sub: 'chart', param: null, chartTf: null, chartInd: null };
   const parts = h.split('/');
-  if (parts[0] === 'indicators' || parts[0] === '' || !['chat','miniapp','news'].includes(parts[0])) {
+  if (parts[0] === 'indicators' || parts[0] === '' || !['chat','miniapp','news','upgrade'].includes(parts[0])) {
     const sub = parts[1] || 'chart';
     const chartTf = (sub === 'chart' && parts[2]) ? parts[2] : null;
     const chartInd = (sub === 'chart' && parts[3]) ? parts[3] : null;
@@ -157,6 +158,7 @@ function parseHash() {
   if (parts[0] === 'chat') return { page: 'chat', sub: null, param: null, chartTf: null, chartInd: null };
   if (parts[0] === 'miniapp') return { page: 'miniapp', sub: parts[1] || 'lessons', param: parts[2] || null, chartTf: null, chartInd: null };
   if (parts[0] === 'news') return { page: 'news', sub: parts[1] || 'general', param: null, chartTf: null, chartInd: null };
+  if (parts[0] === 'upgrade') return { page: 'upgrade', sub: null, param: null, chartTf: null, chartInd: null };
   return { page: 'indicators', sub: 'chart', param: null, chartTf: null, chartInd: null };
 }
 
@@ -448,11 +450,10 @@ async function renderLesson(id) {
 }
 
 async function renderChat() {
-  setActiveNav('chat');
   tgBackButton('hide');
   stopAllPolls();
 
-  let html = '<div class="chat-container"><div class="chat-messages" id="chat-messages">';
+  let html = '<div class="chat-overlay"><div class="chat-overlay-header"><span>🧠 AI Аналитика</span><button class="chat-close-btn" id="chat-close-btn">✕</button></div><div class="chat-container"><div class="chat-messages" id="chat-messages">';
 
   if (chatMessages.length === 0) {
     html += '<div class="chat-welcome"><h3>🧠 AI Аналитика</h3><p>Спросите Market-Brain о Bitcoin. Получайте анализ с учётом текущих рыночных данных.</p><p style="margin-top:12px;font-size:13px;">▪ "Почему BTC падает?"<br>▪ "Прогноз на сегодня"<br>▪ "Что такое MVRV?"</p></div>';
@@ -467,9 +468,16 @@ async function renderChat() {
   html += '<div class="chat-input-bar">';
   html += '<input type="text" class="chat-input" id="chat-input" placeholder="Задайте вопрос о Bitcoin..."' + (chatSending ? ' disabled' : '') + '>';
   html += '<button class="chat-send-btn" id="chat-send-btn"' + (chatSending ? ' disabled' : '') + '>➤</button>';
-  html += '</div></div>';
+  html += '</div></div></div>';
 
   render(html);
+
+  const closeBtn = document.getElementById('chat-close-btn');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => {
+      window.location.hash = '#indicators/chart';
+    });
+  }
 
   const messagesEl = document.getElementById('chat-messages');
   if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -494,6 +502,7 @@ async function renderChat() {
 }
 
 async function sendMessage(text) {
+  if (chatMessages.length >= 100) chatMessages.splice(0, 20);
   chatMessages.push({ role: 'user', text });
   chatMessages.push({ role: 'thinking', text: '⏳ думаю...' });
   chatSending = true;
@@ -700,12 +709,13 @@ async function loadChartData() {
   try {
     const cacheKey = `chart:${chartTimeframe}:100`;
     let candles;
-    if (chartDataCache[cacheKey]) {
-      candles = chartDataCache[cacheKey];
+    const cached = chartDataCache[cacheKey];
+    if (cached && (Date.now() - cached._ts < 60000)) {
+      candles = cached.data;
     } else {
       const data = await apiCall(`/miniapp/chart?timeframe=${chartTimeframe}&limit=100`);
       candles = data.candles;
-      if (candles && candles.length) chartDataCache[cacheKey] = candles;
+      if (candles && candles.length) chartDataCache[cacheKey] = { data: candles, _ts: Date.now() };
     }
     if (!candles || !candles.length) {
       container.innerHTML = '<div class="card" style="text-align:center;padding:20px;color:var(--hint);">Нет данных</div>';
@@ -1162,6 +1172,73 @@ async function renderTradingGame() {
   }
 }
 
+// ─── Upgrade / PRO Page ────────────────────────────────────────────
+async function renderUpgradePage() {
+  stopAllPolls();
+  renderSub('<div class="skeleton skeleton-hero"></div><div class="skeleton skeleton-block"></div>');
+  try {
+    const data = await apiCall('/miniapp/subscription/status');
+    const tier = data.tier || 'free';
+    const isPro = tier === 'pro';
+    const isProPlus = tier === 'pro_plus';
+
+    let html = '<div class="upgrade-hero">';
+    html += '<div class="upgrade-tier-badge ' + tier + '">' + tier.toUpperCase() + '</div>';
+    html += '<div class="upgrade-hero-title">Ваша подписка</div>';
+    if (data.trial_until) html += '<div class="upgrade-expiry">🕐 Триал до: ' + data.trial_until + '</div>';
+    if (data.pro_until) html += '<div class="upgrade-expiry">💎 PRO до: ' + data.pro_until + '</div>';
+    if (data.pro_plus_until) html += '<div class="upgrade-expiry">👑 PRO+ до: ' + data.pro_plus_until + '</div>';
+    html += '</div>';
+
+    html += '<div class="upgrade-cards">';
+
+    html += '<div class="upgrade-card' + (tier === 'free' ? ' current' : '') + '">';
+    html += '<div class="upgrade-card-header">FREE</div>';
+    html += '<div class="upgrade-card-price">0 ⭐</div>';
+    html += '<ul class="upgrade-features">';
+    html += '<li>📊 Дашборд и график</li><li>📰 Новости с тональностью</li><li>📖 Уроки</li><li>🤖 3 AI вопроса/день</li><li>📈 3 сделки/день</li>';
+    html += '</ul>';
+    if (tier === 'free') html += '<div class="upgrade-current-badge">Текущий</div>';
+    html += '</div>';
+
+    html += '<div class="upgrade-card' + (isPro ? ' current' : '') + '">';
+    html += '<div class="upgrade-card-header pro">PRO</div>';
+    html += '<div class="upgrade-card-price">80 ⭐/мес</div>';
+    html += '<ul class="upgrade-features">';
+    html += '<li>✅ Всё из FREE</li><li>🤖 AI без лимитов</li><li>📈 Сделки без лимитов</li><li>🔔 PRO-алерты</li><li>🏆 Полный лидерборд</li>';
+    html += '</ul>';
+    if (isPro) html += '<div class="upgrade-current-badge">Активна</div>';
+    else if (!isProPlus) html += '<button class="upgrade-btn" onclick="subscribeTier(\'pro\')">Подписаться за 80 ⭐</button>';
+    html += '</div>';
+
+    html += '<div class="upgrade-card' + (isProPlus ? ' current' : '') + '">';
+    html += '<div class="upgrade-card-header pro-plus">PRO+</div>';
+    html += '<div class="upgrade-card-price">200 ⭐/мес</div>';
+    html += '<ul class="upgrade-features">';
+    html += '<li>✅ Всё из PRO</li><li>🎤 Голосовой ввод</li><li>⚡ Проактивные алерты</li><li>🎯 Confidence Score ML</li><li>📊 Персональный дашборд</li>';
+    html += '</ul>';
+    if (isProPlus) html += '<div class="upgrade-current-badge">Активна</div>';
+    else html += '<button class="upgrade-btn plus" onclick="subscribeTier(\'pro_plus\')">Подписаться за 200 ⭐</button>';
+    html += '</div>';
+
+    html += '</div>';
+    html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;margin-top:8px;">💡 Нажав кнопку, вы перейдёте в чат-бота для оплаты Telegram Stars</div>';
+
+    renderSub(html);
+  } catch (e) {
+    renderSub('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + escapeHtml(e.message) + '</div></div>');
+  }
+}
+
+function subscribeTier(tier) {
+  haptic('heavy');
+  try {
+    Telegram.WebApp.sendData(JSON.stringify({ action: 'subscribe', tier: tier }));
+  } catch (e) {
+    tgShowAlert('Ошибка: ' + e.message);
+  }
+}
+
 function routePage() {
   const { page, sub, param, chartTf, chartInd } = parseHash();
   stopAllPolls();
@@ -1188,6 +1265,10 @@ function routePage() {
       setActiveNav('news');
       renderNewsPage(sub);
       break;
+    case 'upgrade':
+      setActiveNav('upgrade');
+      renderUpgradePage();
+      break;
     default:
       setActiveNav('indicators');
       renderIndicatorsPage('price');
@@ -1195,6 +1276,14 @@ function routePage() {
 }
 
 window.addEventListener('hashchange', routePage);
+
+const aiBubble = document.getElementById('ai-bubble');
+if (aiBubble) {
+  aiBubble.addEventListener('click', () => {
+    haptic('medium');
+    window.location.hash = '#chat';
+  });
+}
 
 function fmtPrice(v) {
   if (v == null) return '—';

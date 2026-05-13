@@ -289,3 +289,128 @@
 - `chartDataCache` без инвалидации (Mini App)
 
 **Отложено:** Metcalfe Corridor, геймификация, Web3/TON Connect, Shareable Cards, Portfolio Dashboard
+Краткий итог Фазы 3:
+- CHART маркеры — AI может ссылаться на график, пользователь кликает → открывается график с наложенным индикатором
+- Проактивные алерты — 7 триггеров, проверка каждые 2 мин, рассылка всем активным пользователям
+- Голосовой ввод — заглушка с PRO+ гейтом (Whisper API позже)
+- AI Daily Story — ежедневный обзор рынка в 9:00 UTC, рассылка всем
+Фаза 3 завершена и деплоена. Проактивные алерты уже работают — задетекчены BB touch и volume spike (18.7x среднего). Все контейнеры запущены.
+Фаза	Статус	Что
+1 — UX + Монетизация	x1f7e2;	4 кнопки, цветовая схема, Stars, триал, лимиты
+2 — Аналитика + AI	x1f7e2;	AI-саммари, консенсус, 90д истории, ML работает
+3 — AI Evolution	x1f7e2;	[CHART] маркеры, проактивные алерты, голос (заглушка), Daily Story
+4 — Геймификация	x1f4cb;	Лиги, турниры, XP, бейджи
+5 — Web3/TON	x1f4cb;	TON Connect, кошелёк
+6 — Масштабирование	x1f4cb;	API-first, B2B
+Что дальше?
+▣  Build · DeepSeek V4 Pro · 18m 58s
+1 — UX + Монетизация	x1f7e2;	4 кнопки, цветовая схема, Stars, триал, лимиты где посмотреть?
+Thinking: The user is asking where to see the Phase 1 features:
+- 4 button Reply keyboard menu
+- Color scheme (dynamic CSS)
+- Stars payment
+- Trial
+- Limits
+Let me point them to the specific files and code locations.
+- 4 кнопки — bot/state.py:19-26 (ReplyKeyboardMarkup) + bot/handlers/btc.py:30 (текст-матчинг F.text == "📊 Аналитика")
+- Цветовая схема — miniapp/app.css (CSS vars --sentiment), miniapp/app.js:setSentiment() + Telegram.setHeaderColor()
+- Stars оплата — bot/handlers/subscribe.py (/upgrade → sendInvoice(XTR) → pre_checkout → successful_payment)
+- Триал 72ч — btcbot/subscription.py:61 (activate_trial() → INSERT в user_subscriptions), вызывается из /start
+- Лимиты — bot/handlers/ask.py:39-49 (3 AI/день), bot/handlers/game.py (3 сделки/день), счётчики через Redis ask_count:{uid} / trade_count:{uid}
+▣  Build · DeepSeek V4 Pro · 14.6s
+нет ничего такого
+Thinking: The user is saying that when they look at the actual files/bot commands, they don't see any of these features. Let me check what's actually deployed and working. Maybe the features exist in code but aren't accessible through the bot UI, or maybe there's a disconnect between what I documented and what's actually visible.
+Let me check the actual menu_kb to see if the 4 buttons are there, and check if /upgrade actually works, etc.
+# Check actual deployed features
+$ ssh -o ConnectTimeout=5 root@77.110.104.104 "grep -n 'menu_kb\|ReplyKeyboard' /bot/bot/state.py; echo '==='; grep -rn 'sendInvoice\|pre_checkout\|successful_payment\|/upgrade' /bot/bot/handlers/ 2>&1; echo '==='; docker logs bot-bot-1 --tail 5 2>&1; echo '==='; docker ps --format '{{.Names}} {{.Status}}'"
+5:from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+19:menu_kb = ReplyKeyboardMarkup(
+===
+/bot/bot/handlers/ask.py:160:            "💎 Оформите PRO+ за 200 ⭐/мес — `/upgrade_plus`",
+/bot/bot/handlers/subscribe.py:56:@dp.pre_checkout_query()
+/bot/bot/handlers/subscribe.py:57:async def pre_checkout(pre_checkout_query: PreCheckoutQuery):
+/bot/bot/handlers/subscribe.py:58:    await pre_checkout_query.answer(ok=True)
+/bot/bot/handlers/subscribe.py:61:@dp.message(F.successful_payment)
+/bot/bot/handlers/subscribe.py:62:async def successful_payment(message: Message):
+/bot/bot/handlers/subscribe.py:63:    payload = message.successful_payment.invoice_payload
+…
+Click to expand
+Thinking: The code IS deployed. The bot menu_kb shows 4+1 buttons. The proactive alerts even worked and sent to 2 users. The Stars payment handlers are there in subscribe.py.
+The user is saying "нет ничего такого" — meaning they can't SEE these features when using the bot. The issue might be:
+1. The user is on an old cached version of the bot (need to /start to refresh menu_kb)
+2. The /upgrade command isn't in the menu (it's a separate /command, not a button)
+3. The user may be looking at the wrong bot
+4. The bot menu_kb might not be showing because they haven't typed /start recently
+Let me check what the menu_kb actually looks like and verify the bot responds to the buttons. Also let me check if /upgrade is actually a command that works.
+Actually, looking at the menu_kb in state.py:
+menu_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="📊 Аналитика"), KeyboardButton(text="🧠 AI Чат")],
+        [KeyboardButton(text="🎮 Трейдинг"), KeyboardButton(text="📰 Новости")],
+        [KeyboardButton(text="❓ Ещё")],
+    ],
+    resize_keyboard=True,
+)
+This shows 4 buttons + 1. The Stars payment isn't a menu button — it's a /upgrade command. The user may not know about it.
+Let me tell the user what's actually visible and what's behind commands. The user seems frustrated that they can't see the features. Let me be honest about what's visible vs what's in code.
+Код на сервере есть, всё деплоено. Проактивные алерты даже отправились 2 пользователям. Но интерфейс бота показывает не всё. Вот что реально видно:
+Видно в меню (5 кнопок):
+- 📊 Аналитика → /btc
+- 🧠 AI Чат → /ask
+- 🎮 Трейдинг → /portfolio, /buy, /sell
+- 📰 Новости → /news
+- ❓ Ещё → /help
+Не видно — скрытые команды:
+- /upgrade — оплата Stars (PRO)
+- /upgrade_plus — оплата Stars (PRO+)
+- /alert 100000 — ценовые сигналы
+- /learn — уроки
+Mini App (кнопка 📊 BTC слева от ввода):
+- Цветовая схема — меняется по сигналу
+- AI-саммари, консенсус, график
+Хочешь, добавлю кнопки /upgrade и /learn в меню, чтобы было видно?
+▣  Build · DeepSeek V4 Pro · 37.4s
+обучение /learn уже есть в мини app /upgrade нужно както вмонтировать в мини апп посоветуйся с агентами
+Thinking: The user wants to integrate the /upgrade (Stars payment) flow into the Mini App. Let me consult the UI/UX designers and Business Strategist for the best approach.
+Currently:
+- Bot: /upgrade sends a Telegram Stars invoice via sendInvoice()
+- Mini App: no payment UI
+The challenge: Telegram Stars payments work through the bot's sendInvoice() API, not through Mini App WebView. The Mini App can't directly process payments. But it CAN:
+1. Show a "PRO" tab/card with features and pricing
+2. Open the bot chat with /upgrade command via Telegram.WebApp.openTelegramLink()
+3. Or use Telegram.WebApp.openInvoice() if available
+Let me consult agents for the best Mini App integration approach.
+General Task — Consult agents on PRO upgrade UI
+
+---
+
+## Сессия 36: Интеграция /upgrade в Mini App + техдолг (12.05.2026)
+- **P0:** `/upgrade` в Mini App — вкладка «💎 PRO» в Мини App (3 sub-таба: Обучение/Игры/PRO), `sendData()` bridge → `web_app_data` handler → `sendInvoice(XTR)`
+- Карточки тарифов FREE/PRO/PRO+: текущий тир, фичи, цены в Stars, кнопка подписки
+- `GET /miniapp/subscription/status` — API endpoint: tier, trial_until, pro_until, pro_plus_until
+- `F.content_type == ContentType.WEB_APP_DATA` — новый handler в subscribe.py
+- **P0:** `chatMessages` кэп на 100 записей (сдвиг 20 при переполнении) → предотвращение memory leak в Mini App
+- **P1:** `chartDataCache` TTL 60с (был бесконечный кэш) — ключ `{ data, _ts }` вместо сырых свечей
+- **P1:** Bootstrap unit-тестов — `tests/` (conftest, test_subscription, test_auth), 19 тестов: Tier, Features, get_user_tier, has_feature, activate_pro/trial, HMAC-аутентификация
+- **P2:** Дедупликация `app.js` / `app.v11.js` — удалён v11, index.html → `app.js?v=20260512`
+- `pytest` + `pytest-asyncio` добавлены в requirements.txt
+- `asyncpg` mock в conftest.py через `sys.modules` для обхода отсутствия нативного модуля на Windows
+
+## Сессия 37: Редизайн Mini App — PRO в навигацию, AI bubble (12.05.2026)
+- Bottom nav: 📊 Индикаторы | 🎮 Мини App | 📰 Новости | 💎 PRO (AI анализ убран из навигации)
+- Floating AI bubble — круглая кнопка 🧠 над bottom-nav (справа), пульсирующая анимация `ai-glow` (box-shadow 3s ease-in-out) с цветом `--sentiment`
+- Chat overlay — полноэкранный модал (z-index 200) с заголовком «🧠 AI Аналитика» и кнопкой закрытия ✕
+- Кнопка PRO открывает `renderUpgradePage()` с карточками тарифов, `sendData()` → `sendInvoice(XTR)`
+- `renderChat()` больше не вызывает `setActiveNav('chat')` — чат поверх всех вкладок
+- `parseHash()` + `navigate()` + `routePage()` — добавлен роут `upgrade`
+- CSS: `.chat-overlay`, `.chat-overlay-header`, `.chat-close-btn`, `@keyframes ai-glow`
+
+## Сессия 38: Редизайн Mini App — орбитальная навигация (12.05.2026)
+- Замена горизонтального `#bottom-nav` на `#orbital-nav` — 4 кнопки + мозг в одной линии
+- 🧠 AI-мозг 72px в центре между Мини App и Новости, в 2× крупнее остальных кнопок, яркая пульсация `ai-glow`
+- Кнопки: 📊 Индикаторы | 🎮 Мини App | 📰 Новости | 💎 PRO — на одной горизонтальной оси, зазор от мозга ~8px (под свечение)
+- Стеклянная панель `::before` — blur 16px, opacity 0.92, скруглённые верхние углы, `border-top: 2px solid var(--sentiment)` — визуально объединяет навигацию
+- Верхние sub-tabs приглушены (12px, opacity 0.85, прозрачные границы) — нижняя орбита читается как главная
+- AI-чат — полноэкранный overlay при клике на мозг, кнопка закрытия ✕
+- Убран авто-fade орбиты — всегда видима
+- `setActiveNav()` переписан с `.nav-btn` на `.orbital-btn`
