@@ -303,6 +303,15 @@ class Database:
                 metric.time, metric.metric_name, metric.value, metric.source,
             )
 
+    async def save_onchain_metrics_batch(self, metrics: list[Any]) -> None:
+        if not metrics:
+            return
+        async with self.pool.acquire() as conn:
+            await conn.executemany(
+                "INSERT INTO onchain_metrics (time, metric_name, value, source) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING",
+                [(m.time, m.metric_name, m.value, m.source) for m in metrics],
+            )
+
     async def upsert_user(self, user_id: int, username: Optional[str] = None) -> None:
         async with self.pool.acquire() as conn:
             await conn.execute(
