@@ -274,113 +274,21 @@
 
 **Индикаторы sub-tabs:** 📊 График, 💰 Цена, 🔮 Прогноз, 🔔 Подписки
 
-**Работает:** AI-саммари, AI-чат (+ [CHART] маркеры), консенсус, график (4 таймфрейма), волатильность, Fear & Greed, торговый симулятор, подписки/алерты, уроки, новости с тональностью, Timothy Peterson AI, PRO-триал, Stars-оплата, проактивные алерты (7 триггеров), AI Daily Story
+**Работает:** AI-саммари, AI-чат (+ [CHART] маркеры), консенсус, график (4 таймфрейма), волатильность, Fear & Greed, торговый симулятор, подписки/алерты, уроки, новости с тональностью, Timothy Peterson AI, PRO-триал, Stars-оплата, TON-оплата, Коридор Меткалфа, Лиги/Турниры/Рефералы, голосовой ввод (Google STT + Whisper), проактивные алерты (7 триггеров), AI Daily Story
 
-**Docker:** 6 контейнеров (postgres, redis, collector, scheduler, api, bot). Сервер Aeza (77.110.104.104, Ubuntu 24.04, 1 vCPU, 2GB)
+**Docker:** 6 контейнеров (postgres, redis, collector, scheduler, api, bot). Сервер Fornex (89.127.215.15, Ubuntu 24.04, 1 vCPU, 2GB, 20GB SSD)
 
-**Данные:** 90 дней истории (CoinGecko seed), ~107K записей в prices, 541 свеча 4H
+**Данные:** 90 дней истории (CoinGecko seed), ~115K записей в prices, 726 on-chain метрик
 
-**ML:** RSI 53.2, MA50 $81,983, MA200 $81,632, направление HOLD, confidence 28%
+**ML:** Скользящая медиана Меткалфа, LightGBM на 4H
 
 **Известные проблемы:**
 - `network_mode: host` для bot (iptables на уровне хостера блокирует Docker bridge outbound)
-- Нет unit-тестов
+- cloudflared quick tunnel меняет URL при перезапуске (нужен named tunnel с доменом)
 - `chatMessages` массив без кепа (Mini App)
 - `chartDataCache` без инвалидации (Mini App)
 
-**Отложено:** Metcalfe Corridor, геймификация, Web3/TON Connect, Shareable Cards, Portfolio Dashboard
-Краткий итог Фазы 3:
-- CHART маркеры — AI может ссылаться на график, пользователь кликает → открывается график с наложенным индикатором
-- Проактивные алерты — 7 триггеров, проверка каждые 2 мин, рассылка всем активным пользователям
-- Голосовой ввод — заглушка с PRO+ гейтом (Whisper API позже)
-- AI Daily Story — ежедневный обзор рынка в 9:00 UTC, рассылка всем
-Фаза 3 завершена и деплоена. Проактивные алерты уже работают — задетекчены BB touch и volume spike (18.7x среднего). Все контейнеры запущены.
-Фаза	Статус	Что
-1 — UX + Монетизация	x1f7e2;	4 кнопки, цветовая схема, Stars, триал, лимиты
-2 — Аналитика + AI	x1f7e2;	AI-саммари, консенсус, 90д истории, ML работает
-3 — AI Evolution	x1f7e2;	[CHART] маркеры, проактивные алерты, голос (заглушка), Daily Story
-4 — Геймификация	x1f4cb;	Лиги, турниры, XP, бейджи
-5 — Web3/TON	x1f4cb;	TON Connect, кошелёк
-6 — Масштабирование	x1f4cb;	API-first, B2B
-Что дальше?
-▣  Build · DeepSeek V4 Pro · 18m 58s
-1 — UX + Монетизация	x1f7e2;	4 кнопки, цветовая схема, Stars, триал, лимиты где посмотреть?
-Thinking: The user is asking where to see the Phase 1 features:
-- 4 button Reply keyboard menu
-- Color scheme (dynamic CSS)
-- Stars payment
-- Trial
-- Limits
-Let me point them to the specific files and code locations.
-- 4 кнопки — bot/state.py:19-26 (ReplyKeyboardMarkup) + bot/handlers/btc.py:30 (текст-матчинг F.text == "📊 Аналитика")
-- Цветовая схема — miniapp/app.css (CSS vars --sentiment), miniapp/app.js:setSentiment() + Telegram.setHeaderColor()
-- Stars оплата — bot/handlers/subscribe.py (/upgrade → sendInvoice(XTR) → pre_checkout → successful_payment)
-- Триал 72ч — btcbot/subscription.py:61 (activate_trial() → INSERT в user_subscriptions), вызывается из /start
-- Лимиты — bot/handlers/ask.py:39-49 (3 AI/день), bot/handlers/game.py (3 сделки/день), счётчики через Redis ask_count:{uid} / trade_count:{uid}
-▣  Build · DeepSeek V4 Pro · 14.6s
-нет ничего такого
-Thinking: The user is saying that when they look at the actual files/bot commands, they don't see any of these features. Let me check what's actually deployed and working. Maybe the features exist in code but aren't accessible through the bot UI, or maybe there's a disconnect between what I documented and what's actually visible.
-Let me check the actual menu_kb to see if the 4 buttons are there, and check if /upgrade actually works, etc.
-# Check actual deployed features
-$ ssh -o ConnectTimeout=5 root@77.110.104.104 "grep -n 'menu_kb\|ReplyKeyboard' /bot/bot/state.py; echo '==='; grep -rn 'sendInvoice\|pre_checkout\|successful_payment\|/upgrade' /bot/bot/handlers/ 2>&1; echo '==='; docker logs bot-bot-1 --tail 5 2>&1; echo '==='; docker ps --format '{{.Names}} {{.Status}}'"
-5:from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-19:menu_kb = ReplyKeyboardMarkup(
-===
-/bot/bot/handlers/ask.py:160:            "💎 Оформите PRO+ за 200 ⭐/мес — `/upgrade_plus`",
-/bot/bot/handlers/subscribe.py:56:@dp.pre_checkout_query()
-/bot/bot/handlers/subscribe.py:57:async def pre_checkout(pre_checkout_query: PreCheckoutQuery):
-/bot/bot/handlers/subscribe.py:58:    await pre_checkout_query.answer(ok=True)
-/bot/bot/handlers/subscribe.py:61:@dp.message(F.successful_payment)
-/bot/bot/handlers/subscribe.py:62:async def successful_payment(message: Message):
-/bot/bot/handlers/subscribe.py:63:    payload = message.successful_payment.invoice_payload
-…
-Click to expand
-Thinking: The code IS deployed. The bot menu_kb shows 4+1 buttons. The proactive alerts even worked and sent to 2 users. The Stars payment handlers are there in subscribe.py.
-The user is saying "нет ничего такого" — meaning they can't SEE these features when using the bot. The issue might be:
-1. The user is on an old cached version of the bot (need to /start to refresh menu_kb)
-2. The /upgrade command isn't in the menu (it's a separate /command, not a button)
-3. The user may be looking at the wrong bot
-4. The bot menu_kb might not be showing because they haven't typed /start recently
-Let me check what the menu_kb actually looks like and verify the bot responds to the buttons. Also let me check if /upgrade is actually a command that works.
-Actually, looking at the menu_kb in state.py:
-menu_kb = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="📊 Аналитика"), KeyboardButton(text="🧠 AI Чат")],
-        [KeyboardButton(text="🎮 Трейдинг"), KeyboardButton(text="📰 Новости")],
-        [KeyboardButton(text="❓ Ещё")],
-    ],
-    resize_keyboard=True,
-)
-This shows 4 buttons + 1. The Stars payment isn't a menu button — it's a /upgrade command. The user may not know about it.
-Let me tell the user what's actually visible and what's behind commands. The user seems frustrated that they can't see the features. Let me be honest about what's visible vs what's in code.
-Код на сервере есть, всё деплоено. Проактивные алерты даже отправились 2 пользователям. Но интерфейс бота показывает не всё. Вот что реально видно:
-Видно в меню (5 кнопок):
-- 📊 Аналитика → /btc
-- 🧠 AI Чат → /ask
-- 🎮 Трейдинг → /portfolio, /buy, /sell
-- 📰 Новости → /news
-- ❓ Ещё → /help
-Не видно — скрытые команды:
-- /upgrade — оплата Stars (PRO)
-- /upgrade_plus — оплата Stars (PRO+)
-- /alert 100000 — ценовые сигналы
-- /learn — уроки
-Mini App (кнопка 📊 BTC слева от ввода):
-- Цветовая схема — меняется по сигналу
-- AI-саммари, консенсус, график
-Хочешь, добавлю кнопки /upgrade и /learn в меню, чтобы было видно?
-▣  Build · DeepSeek V4 Pro · 37.4s
-обучение /learn уже есть в мини app /upgrade нужно както вмонтировать в мини апп посоветуйся с агентами
-Thinking: The user wants to integrate the /upgrade (Stars payment) flow into the Mini App. Let me consult the UI/UX designers and Business Strategist for the best approach.
-Currently:
-- Bot: /upgrade sends a Telegram Stars invoice via sendInvoice()
-- Mini App: no payment UI
-The challenge: Telegram Stars payments work through the bot's sendInvoice() API, not through Mini App WebView. The Mini App can't directly process payments. But it CAN:
-1. Show a "PRO" tab/card with features and pricing
-2. Open the bot chat with /upgrade command via Telegram.WebApp.openTelegramLink()
-3. Or use Telegram.WebApp.openInvoice() if available
-Let me consult agents for the best Mini App integration approach.
-General Task — Consult agents on PRO upgrade UI
+**Отложено:** Web3/TON Connect 2.0, Shareable Cards, Portfolio Dashboard
 
 ---
 
@@ -452,3 +360,32 @@ General Task — Consult agents on PRO upgrade UI
 - `miniapp/app.js` — селектор оплаты (💎 Stars / 💠 TON), ввод адреса, карточка оплаты, кнопки «Открыть кошелёк» / «Я оплатил», polling статуса каждые 5с
 - `miniapp/app.css` — стили `.payment-method-selector`, `.wallet-chip`, `.payment-address`, `.connect-wallet-wrap`
 - Существующий Stars-флоу не тронут, крипта — альтернативный путь
+
+## Сессия 42: Геймификация — Арена (13.05.2026)
+- **Sigma-Architect** спроектировал: 3 таблицы + 1 колонка, 0 новых файлов
+- `btcbot/db.py` — таблицы `tournaments`, `tournament_entries`, `referrals` + колонка `stars` в `game_users`
+- `btcbot/game.py` — `compute_league()` (B/S/G/Platinum), `get_tournament_state()`, `join_tournament()`, `get_referral_info()`, `get_pnl_card_data()`
+- `backend/api.py` — 6 эндпоинтов: `/game/league`, `/game/tournament`, `/game/tournament/{id}/join`, `/game/pnl-card`, `/referral/stats`, `/referral`
+- `miniapp/app.js` — sub-tab 🏆 Арена в 🎮 Мини App: карточка Лиги с прогресс-баром, Турнир с лидербордом и кнопкой «Вступить», P&L-карточка с шарингом, Рефералы с ссылкой `t.me/Market04ekBot?start=ref_<id>` + $5 бонус
+- `miniapp/app.css` — стили `.arena-section`, `.league-banner`, `.league-progress`, `.tournament-card`, `.referral-row`
+- Призы турнира: 250/150/75/25 ⭐ за 1-4 места
+
+## Сессия 43: Голосовой ввод Whisper (13.05.2026)
+- `bot/handlers/voice.py` — `transcribe_voice()`: OpenAI Whisper API (если ключ) → Google Speech Recognition (fallback, бесплатно)
+- `Dockerfile` — добавлен `ffmpeg` для конвертации OGG → WAV
+- `requirements.txt` — `SpeechRecognition>=3.10`
+- `btcbot/config.py` — `openai_api_key` (опционально)
+- `bot/handlers/ask.py` — `voice_ask()`: полный флоу (распознавание → Market-Brain → ответ с [CHART]), PRO+ гейт, rate-limit через Redis
+- Работает без API-ключа через Google STT (ru-RU)
+
+## Сессия 44: Деплой на новый сервер + фиксы (13.05.2026)
+- Новый сервер: **89.127.215.15** (Fornex, Ubuntu 24.04, 1 vCPU, 2GB, 20GB SSD)
+- Docker 29.4.3 + Docker Compose v5.1.3
+- Cloudflare quick tunnel для HTTPS Mini App
+- **P0:** `btcbot/config.py` — `extra="allow"` (POSTGRES_PASSWORD не роняет сервисы)
+- **P0:** `miniapp/app.js` — `Telegram.WebApp.sendData` → `Telegram.sendData` (баг: `Telegram = WebApp` → `WebApp.WebApp` = undefined)
+- **P0:** `docker-compose.yml` — volume mounts `./bot:/app/bot` + `./backend:/app/backend` для hot-reload
+- **P1:** `btcbot/db.py` — ALTER TABLE `user_subscriptions` для `ton_wallet` (схема не обновлялась на существующей БД)
+- **P2:** `db.py` — `ALTER TABLE game_users ADD stars` (миграция на лету)
+- **Баги:** 2 бота с одним токеном (старый сервер) → конфликт getUpdates → смена токена через @BotFather
+- Системный тунель `cloudflared-tunnel.service` с автообновлением MINIAPP_URL при смене URL
