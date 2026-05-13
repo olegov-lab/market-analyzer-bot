@@ -20,7 +20,7 @@ try {
       const params = new URLSearchParams(hash.slice(1));
       const rawData = params.get('tgWebAppData') || '';
       initData = decodeURIComponent(rawData);
-      Telegram = { ready: function(){}, expand: function(){}, BackButton: { show: function(){}, hide: function(){}, onClick: function(){} }, HapticFeedback: { impactOccurred: function(){} } };
+      Telegram = { ready: function(){}, expand: function(){}, sendData: function(){}, setHeaderColor: function(){}, openTelegramLink: function(){}, openLink: function(){}, BackButton: { show: function(){}, hide: function(){}, onClick: function(){} }, HapticFeedback: { impactOccurred: function(){} } };
       if (window.history && window.history.replaceState) {
         window.history.replaceState(null, '', window.location.pathname + window.location.search);
       }
@@ -30,7 +30,7 @@ try {
 
 // Fallback: ensure Telegram is never null (prevents haptic/UI errors)
 if (!Telegram) {
-  Telegram = { ready: function(){}, expand: function(){}, BackButton: { show: function(){}, hide: function(){}, onClick: function(){} }, HapticFeedback: { impactOccurred: function(){} } };
+  Telegram = { ready: function(){}, expand: function(){}, sendData: function(){}, setHeaderColor: function(){}, openTelegramLink: function(){}, openLink: function(){}, BackButton: { show: function(){}, hide: function(){}, onClick: function(){} }, HapticFeedback: { impactOccurred: function(){} } };
   initData = '';
 }
 
@@ -113,7 +113,7 @@ function setSentiment(direction) {
   document.documentElement.setAttribute('data-sentiment', sentiment);
   try {
     const colors = { bullish: '#00c853', bearish: '#ff1744', neutral: '#2481cc' };
-    Telegram.WebApp.setHeaderColor(colors[sentiment]);
+    Telegram.setHeaderColor(colors[sentiment]);
   } catch(e) {}
 }
 
@@ -197,7 +197,7 @@ async function renderDashboard() {
 
     try {
       const colors = { buy: '#00c853', sell: '#ff1744', hold: '#ff9800' };
-      Telegram.WebApp.setHeaderColor(colors[signalClass] || '#000');
+      Telegram.setHeaderColor(colors[signalClass] || '#000');
     } catch(e) {}
 
     let signalEmoji = '⚪';
@@ -1386,9 +1386,9 @@ async function verifyAndActivate(paymentId) {
 
 function openTonUri(uri) {
   try {
-    Telegram.WebApp.openTelegramLink(uri.replace('ton://', 'https://t.me/'));
+    Telegram.openTelegramLink(uri.replace('ton://', 'https://t.me/'));
   } catch(_) {
-    try { Telegram.WebApp.openLink(uri); } catch(_2) {}
+    try { Telegram.openLink(uri); } catch(_2) {}
   }
 }
 
@@ -1414,7 +1414,7 @@ function copyToClipboard(text) {
 function subscribeTier(tier) {
   haptic('heavy');
   try {
-    Telegram.WebApp.sendData(JSON.stringify({ action: 'subscribe', tier: tier }));
+    Telegram.sendData(JSON.stringify({ action: 'subscribe', tier: tier }));
   } catch (e) {
     tgShowAlert('Ошибка: ' + e.message);
   }
