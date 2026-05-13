@@ -167,10 +167,6 @@ async def voice_ask(message: Message):
         )
         return
 
-    if not settings.openai_api_key:
-        await message.answer("🎤 Голосовой ввод не настроен.", reply_markup=menu_kb)
-        return
-
     # Rate limit check
     pending_key = f"{PENDING_PREFIX}{user_id}"
     if redis_client and await redis_client.exists(pending_key):
@@ -190,7 +186,7 @@ async def voice_ask(message: Message):
         buf.write(file_bytes.read())
         voice_data = buf.getvalue()
 
-        from bot.handlers.voice import transcribe_voice
+    from bot.handlers.voice import transcribe_voice
         text = await transcribe_voice(voice_data, settings.openai_api_key)
 
         if not text:
