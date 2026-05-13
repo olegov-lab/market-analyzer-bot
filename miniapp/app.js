@@ -1216,16 +1216,20 @@ async function renderTradingGame() {
 }
 
 // ─── Upgrade / PRO Page ────────────────────────────────────────────
+var paymentMethod = 'stars';
+var paymentInterval = null;
+
 async function renderUpgradePage() {
   stopAllPolls();
+  if (paymentInterval) { clearInterval(paymentInterval); paymentInterval = null; }
   renderSub('<div class="skeleton skeleton-hero"></div><div class="skeleton skeleton-block"></div>');
   try {
-    const data = await apiCall('/miniapp/subscription/status');
-    const tier = data.tier || 'free';
-    const isPro = tier === 'pro';
-    const isProPlus = tier === 'pro_plus';
+    var data = await apiCall('/miniapp/subscription/status');
+    var tier = data.tier || 'free';
+    var isPro = tier === 'pro';
+    var isProPlus = tier === 'pro_plus';
 
-    let html = '<div class="upgrade-hero">';
+    var html = '<div class="upgrade-hero">';
     html += '<div class="upgrade-tier-badge ' + tier + '">' + tier.toUpperCase() + '</div>';
     html += '<div class="upgrade-hero-title">Ваша подписка</div>';
     if (data.trial_until) html += '<div class="upgrade-expiry">🕐 Триал до: ' + data.trial_until + '</div>';
@@ -1233,11 +1237,29 @@ async function renderUpgradePage() {
     if (data.pro_plus_until) html += '<div class="upgrade-expiry">👑 PRO+ до: ' + data.pro_plus_until + '</div>';
     html += '</div>';
 
+    html += '<div class="payment-method-selector">';
+    html += '<button class="payment-method' + (paymentMethod === 'stars' ? ' active' : '') + '" data-method="stars" onclick="switchPaymentMethod(\'stars\')">💎 Stars</button>';
+    html += '<button class="payment-method' + (paymentMethod === 'ton' ? ' active' : '') + '" data-method="ton" onclick="switchPaymentMethod(\'ton\')">💠 TON</button>';
+    html += '</div>';
+
+    if (paymentMethod === 'ton') {
+      var walletData = { linked: false };
+      try { walletData = await apiCall('/crypto/wallet/status'); } catch(_) {}
+      if (walletData.linked) {
+        var shortAddr = walletData.wallet_address.substring(0, 8) + '...' + walletData.wallet_address.slice(-6);
+        html += '<div class="wallet-chip"><span style="width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block;"></span> ' + shortAddr + '</div>';
+        window._tonWallet = walletData.wallet_address;
+      } else {
+        html += '<div class="connect-wallet-wrap"><input class="wallet-input" id="ton-wallet-input" placeholder="Вставьте адрес TON кошелька..." style="flex:1;padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px;font-family:inherit;"><button class="upgrade-btn" onclick="linkTonWallet()" style="margin:0;flex-shrink:0;">🔌 Подключить</button></div>';
+        html += '<div style="font-size:10px;color:var(--hint);margin-top:4px;">Адрес начинается с UQ...</div>';
+      }
+    }
+
     html += '<div class="upgrade-cards">';
 
     html += '<div class="upgrade-card' + (tier === 'free' ? ' current' : '') + '">';
     html += '<div class="upgrade-card-header">FREE</div>';
-    html += '<div class="upgrade-card-price">0 ⭐</div>';
+    html += '<div class="upgrade-card-price">0</div>';
     html += '<ul class="upgrade-features">';
     html += '<li>📊 Дашборд и график</li><li>📰 Новости с тональностью</li><li>📖 Уроки</li><li>🤖 3 AI вопроса/день</li><li>📈 3 сделки/день</li>';
     html += '</ul>';
@@ -1246,30 +1268,146 @@ async function renderUpgradePage() {
 
     html += '<div class="upgrade-card' + (isPro ? ' current' : '') + '">';
     html += '<div class="upgrade-card-header pro">PRO</div>';
-    html += '<div class="upgrade-card-price">80 ⭐/мес</div>';
+    html += '<div class="upgrade-card-price">' + (paymentMethod === 'ton' ? '2 TON' : '80 ⭐') + '<span style="font-size:11px;font-weight:400;">/мес</span></div>';
     html += '<ul class="upgrade-features">';
     html += '<li>✅ Всё из FREE</li><li>🤖 AI без лимитов</li><li>📈 Сделки без лимитов</li><li>🔔 PRO-алерты</li><li>🏆 Полный лидерборд</li>';
     html += '</ul>';
     if (isPro) html += '<div class="upgrade-current-badge">Активна</div>';
-    else if (!isProPlus) html += '<button class="upgrade-btn" onclick="subscribeTier(\'pro\')">Подписаться за 80 ⭐</button>';
+    else if (!isProPlus) {
+      if (paymentMethod === 'ton') {
+        html += '<button class="upgrade-btn" onclick="createCryptoPayment(\'pro\')">Купить за 2 TON</button>';
+      } else {
+        html += '<button class="upgrade-btn" onclick="subscribeTier(\'pro\')">Подписаться за 80 ⭐</button>';
+      }
+    }
     html += '</div>';
 
     html += '<div class="upgrade-card' + (isProPlus ? ' current' : '') + '">';
     html += '<div class="upgrade-card-header pro-plus">PRO+</div>';
-    html += '<div class="upgrade-card-price">200 ⭐/мес</div>';
+    html += '<div class="upgrade-card-price">' + (paymentMethod === 'ton' ? '5 TON' : '200 ⭐') + '<span style="font-size:11px;font-weight:400;">/мес</span></div>';
     html += '<ul class="upgrade-features">';
     html += '<li>✅ Всё из PRO</li><li>🎤 Голосовой ввод</li><li>⚡ Проактивные алерты</li><li>🎯 Confidence Score ML</li><li>📊 Персональный дашборд</li>';
     html += '</ul>';
     if (isProPlus) html += '<div class="upgrade-current-badge">Активна</div>';
-    else html += '<button class="upgrade-btn plus" onclick="subscribeTier(\'pro_plus\')">Подписаться за 200 ⭐</button>';
+    else {
+      if (paymentMethod === 'ton') {
+        html += '<button class="upgrade-btn plus" onclick="createCryptoPayment(\'pro_plus\')">Купить за 5 TON</button>';
+      } else {
+        html += '<button class="upgrade-btn plus" onclick="subscribeTier(\'pro_plus\')">Подписаться за 200 ⭐</button>';
+      }
+    }
     html += '</div>';
 
     html += '</div>';
-    html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;margin-top:8px;">💡 Нажав кнопку, вы перейдёте в чат-бота для оплаты Telegram Stars</div>';
+    if (paymentMethod === 'stars') {
+      html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;margin-top:8px;">💡 Нажав кнопку, вы перейдёте в чат-бота для оплаты Telegram Stars</div>';
+    } else {
+      html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;margin-top:8px;">💠 Оплата напрямую с TON кошелька. Транзакция проверяется автоматически.</div>';
+    }
 
     renderSub(html);
   } catch (e) {
     renderSub('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + escapeHtml(e.message) + '</div></div>');
+  }
+}
+
+function switchPaymentMethod(method) {
+  paymentMethod = method;
+  if (paymentInterval) { clearInterval(paymentInterval); paymentInterval = null; }
+  renderUpgradePage();
+}
+
+async function linkTonWallet() {
+  var input = document.getElementById('ton-wallet-input');
+  var addr = (input && input.value || '').trim();
+  if (!addr) { tgShowAlert('Введите адрес кошелька'); return; }
+  if (!addr.startsWith('UQ') && !addr.startsWith('EQ')) { tgShowAlert('Адрес должен начинаться с UQ или EQ'); return; }
+  try {
+    await apiCall('/crypto/wallet/link', { method: 'POST', body: JSON.stringify({ wallet_address: addr }), headers: { 'Content-Type': 'application/json' } });
+    window._tonWallet = addr;
+    renderUpgradePage();
+  } catch(e) { tgShowAlert('Ошибка: ' + e.message); }
+}
+
+async function createCryptoPayment(tier) {
+  haptic('heavy');
+  var wallet = window._tonWallet || '';
+  if (!wallet) { tgShowAlert('Сначала подключите TON кошелёк'); return; }
+  try {
+    var pay = await apiCall('/crypto/payment/create', {
+      method: 'POST',
+      body: JSON.stringify({ tier: tier, wallet_address: wallet }),
+      headers: { 'Content-Type': 'application/json' }
+    });
+    window._currentPaymentId = pay.payment_id;
+    var html = '<div class="card" id="crypto-pay-card"><div class="card-title">💠 Оплата ' + pay.amount_ton + ' TON</div>';
+    html += '<div style="margin:8px 0;font-size:11px;color:var(--hint);">Отправьте точно <b>' + pay.amount_ton + ' TON</b> на адрес:</div>';
+    html += '<div class="payment-address" onclick="copyToClipboard(\'' + pay.recipient_wallet + '\')">' + pay.recipient_wallet + ' <span style="color:var(--btn);font-size:10px;">(копировать)</span></div>';
+    html += '<div style="font-size:11px;color:var(--hint);">Комментарий: <b>' + pay.comment + '</b></div>';
+    html += '<div style="display:flex;gap:8px;margin-top:12px;">';
+    html += '<button class="upgrade-btn" style="flex:1;" onclick="openTonUri(\'' + escapeHtml(pay.ton_uri) + '\')">🔄 Открыть кошелёк</button>';
+    html += '<button class="upgrade-btn" style="flex:1;background:var(--green);" onclick="verifyAndActivate(' + pay.payment_id + ')">✅ Я оплатил</button>';
+    html += '</div>';
+    html += '<div style="margin-top:8px;font-size:11px;color:var(--hint);text-align:center;" id="pay-status">Ожидание платежа...</div>';
+    html += '</div>';
+
+    var cards = document.querySelector('.upgrade-cards');
+    if (cards) cards.insertAdjacentHTML('afterend', html);
+
+    paymentInterval = setInterval(function() {
+      apiCall('/crypto/payment/' + pay.payment_id).then(function(s) {
+        if (s.status === 'paid') {
+          clearInterval(paymentInterval);
+          var el = document.getElementById('pay-status');
+          if (el) el.innerHTML = '✅ Оплата получена! Обновляем...';
+          setTimeout(function() { renderUpgradePage(); }, 1500);
+        }
+      }).catch(function(){});
+    }, 5000);
+  } catch(e) { tgShowAlert('Ошибка: ' + e.message); }
+}
+
+async function verifyAndActivate(paymentId) {
+  try {
+    var result = await apiCall('/crypto/payment/' + paymentId + '/verify', {
+      method: 'POST',
+      body: JSON.stringify({}),
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (result.status === 'paid') {
+      tgShowAlert('✅ Оплата подтверждена! PRO активирован.');
+      if (paymentInterval) { clearInterval(paymentInterval); paymentInterval = null; }
+      renderUpgradePage();
+    } else {
+      tgShowAlert('⏳ Платёж пока не найден. Попробуйте через минуту.');
+    }
+  } catch(e) { tgShowAlert('Ошибка: ' + e.message); }
+}
+
+function openTonUri(uri) {
+  try {
+    Telegram.WebApp.openTelegramLink(uri.replace('ton://', 'https://t.me/'));
+  } catch(_) {
+    try { Telegram.WebApp.openLink(uri); } catch(_2) {}
+  }
+}
+
+function copyToClipboard(text) {
+  haptic('medium');
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(function() {
+      tgShowAlert('Адрес скопирован!');
+    }).catch(function(){});
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    tgShowAlert('Адрес скопирован!');
   }
 }
 

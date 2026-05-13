@@ -325,6 +325,154 @@ async def miniapp_subscription_status(request: Request):
     return result
 
 
+# ─── Crypto / TON Payment ──────────────────────────────────────────
+
+@app.get("/crypto/wallet/status")
+@limiter.limit("20/minute")
+async def crypto_wallet_status(request: Request):
+    user_id = await _get_user_id(request)
+    async with db.pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT ton_wallet, updated_at FROM user_subscriptions WHERE user_id = $1",
+            user_id,
+        )
+    if row and row["ton_wallet"]:
+        return {"wallet_address": row["ton_wallet"], "linked": True}
+    return {"wallet_address": None, "linked": False}
+
+
+@app.post("/crypto/wallet/link")
+@limiter.limit("10/minute")
+async def crypto_wallet_link(request: Request):
+    user_id = await _get_user_id(request)
+    body = await request.json()
+    wallet = (body.get("wallet_address") or "").strip()
+    if not wallet or len(wallet) < 32:
+        raise HTTPException(400, "Invalid TON wallet address")
+    async with db.pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO user_subscriptions (user_id, ton_wallet) VALUES ($1, $2) "
+            "ON CONFLICT (user_id) DO UPDATE SET ton_wallet = $2, updated_at = NOW()",
+            user_id, wallet,
+        )
+    return {"status": "linked", "wallet_address": wallet}
+
+
+@app.post("/crypto/payment/create")
+@limiter.limit("10/minute")
+async def crypto_payment_create(request: Request):
+    user_id = await _get_user_id(request)
+    body = await request.json()
+    tier = (body.get("tier") or "").lower()
+    wallet = (body.get("wallet_address") or "").strip()
+
+    if tier not in ("pro", "pro_plus"):
+        raise HTTPException(400, "Invalid tier")
+    if not settings.ton_recipient_wallet:
+        raise HTTPException(503, "TON payments not configured")
+
+    amount_ton = settings.ton_pro_plus_price_ton if tier == "pro_plus" else settings.ton_pro_price_ton
+    from btcbot.crypto import ton_to_nano
+    amount_nano = ton_to_nano(amount_ton)
+    comment = f"btcmon_{tier}_{user_id}"
+
+    async with db.pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "INSERT INTO crypto_payments (user_id, wallet_address, amount_nano, amount_ton, tier, comment, status) "
+            "VALUES ($1,$2,$3,$4,$5,$6,'pending') RETURNING id",
+            user_id, wallet, amount_nano, amount_ton, tier, comment,
+        )
+
+    return {
+        "payment_id": row["id"],
+        "amount_ton": amount_ton,
+        "amount_nano": amount_nano,
+        "recipient_wallet": settings.ton_recipient_wallet,
+        "comment": comment,
+        "ton_uri": f"ton://transfer/{settings.ton_recipient_wallet}?amount={amount_nano}&text={comment}",
+    }
+
+
+@app.get("/crypto/payment/{payment_id}")
+@limiter.limit("30/minute")
+async def crypto_payment_status(request: Request, payment_id: int):
+    user_id = await _get_user_id(request)
+    async with db.pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id, status, tier, amount_ton, tx_hash, paid_at, comment "
+            "FROM crypto_payments WHERE id = $1 AND user_id = $2",
+            payment_id, user_id,
+        )
+    if not row:
+        raise HTTPException(404, "Payment not found")
+    return {
+        "payment_id": row["id"],
+        "status": row["status"],
+        "tier": row["tier"],
+        "amount_ton": float(row["amount_ton"]),
+        "tx_hash": row["tx_hash"],
+        "paid_at": row["paid_at"].isoformat() if row["paid_at"] else None,
+    }
+
+
+@app.post("/crypto/payment/{payment_id}/verify")
+@limiter.limit("10/minute")
+async def crypto_payment_verify(request: Request, payment_id: int):
+    user_id = await _get_user_id(request)
+    body = await request.json() if request.headers.get("content-length", "0") != "0" else {}
+    tx_hash = (body.get("tx_hash") or "").strip()
+
+    async with db.pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id, user_id, amount_nano, amount_ton, tier, comment, status, created_at "
+            "FROM crypto_payments WHERE id = $1 AND user_id = $2",
+            payment_id, user_id,
+        )
+    if not row:
+        raise HTTPException(404, "Payment not found")
+    if row["status"] == "paid":
+        return {"status": "paid", "tier": row["tier"]}
+
+    if not settings.ton_recipient_wallet:
+        raise HTTPException(503, "TON payments not configured")
+
+    from btcbot.crypto import TONVerifier
+    verifier = TONVerifier(settings.toncenter_api_url)
+
+    verified = False
+    found_tx_hash = tx_hash
+
+    if tx_hash:
+        verified = await verifier.verify_transaction(tx_hash, settings.ton_recipient_wallet, int(row["amount_nano"]))
+    else:
+        from datetime import timedelta
+        result = await verifier.find_incoming_payment(
+            settings.ton_recipient_wallet,
+            int(row["amount_nano"]),
+            row["comment"],
+            row["created_at"] - timedelta(minutes=5),
+        )
+        if result:
+            verified = True
+            found_tx_hash = result["tx_hash"]
+
+    if verified:
+        from btcbot.subscription import activate_pro, activate_pro_plus
+        if row["tier"] == "pro_plus":
+            await activate_pro_plus(db, user_id)
+        else:
+            await activate_pro(db, user_id)
+
+        async with db.pool.acquire() as conn2:
+            await conn2.execute(
+                "UPDATE crypto_payments SET status='paid', tx_hash=$1, paid_at=NOW() WHERE id=$2",
+                found_tx_hash, payment_id,
+            )
+        return {"status": "paid", "tier": row["tier"], "tx_hash": found_tx_hash}
+
+    return {"status": "pending"}
+
+
 # ─── Async AI task store (polling-based) ──────────────────────────
 
 async def _fetch_timothy_analysis(price: Optional[float], indicators) -> str:

@@ -969,3 +969,11 @@ body {
   gap: 8px;
   flex-shrink: 0;
 }
+
+/* ─── Payment Method Selector ──────────────────────────────────── */
+.payment-method-selector { display: flex; gap: 6px; margin-bottom: 10px; }
+.payment-method { flex: 1; padding: 8px 6px; border-radius: 10px; border: 2px solid var(--border); background: var(--section-bg); color: var(--hint); font-size: 12px; font-weight: 600; cursor: pointer; text-align: center; font-family: inherit; transition: all 0.2s; }
+.payment-method.active { border-color: var(--btn); color: var(--btn-text); background: var(--btn); }
+.wallet-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 20px; background: rgba(0,200,83,0.1); border: 1px solid var(--green); font-size: 12px; font-weight: 500; margin-bottom: 8px; }
+.connect-wallet-wrap { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+.payment-address { font-size: 11px; word-break: break-all; background: var(--bg); padding: 10px; border-radius: 8px; margin: 8px 0; user-select: all; cursor: pointer; border: 1px solid var(--border); }

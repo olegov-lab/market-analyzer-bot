@@ -201,8 +201,27 @@ class Database:
                     trial_until TIMESTAMPTZ,
                     pro_until TIMESTAMPTZ,
                     pro_plus_until TIMESTAMPTZ,
+                    ton_wallet TEXT,
                     created_at TIMESTAMPTZ DEFAULT NOW(),
                     updated_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS crypto_payments (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT REFERENCES users(user_id),
+                    wallet_address TEXT NOT NULL,
+                    chain TEXT NOT NULL DEFAULT 'ton',
+                    amount_nano DECIMAL(30,0) NOT NULL,
+                    amount_ton DECIMAL(20,9) NOT NULL,
+                    tx_hash TEXT,
+                    tier TEXT NOT NULL CHECK (tier IN ('pro','pro_plus')),
+                    comment TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending','paid','expired','failed')),
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    paid_at TIMESTAMPTZ
                 )
             """)
 
