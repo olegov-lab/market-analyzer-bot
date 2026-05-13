@@ -1413,10 +1413,15 @@ function copyToClipboard(text) {
 
 function subscribeTier(tier) {
   haptic('heavy');
+  var w = window.Telegram && window.Telegram.WebApp;
+  if (!w || !w.sendData) {
+    tgShowAlert('WebApp мост не загружен. Закройте и откройте Mini App снова.');
+    return;
+  }
   try {
-    Telegram.sendData(JSON.stringify({ action: 'subscribe', tier: tier }));
+    w.sendData(JSON.stringify({ action: 'subscribe', tier: tier }));
   } catch (e) {
-    tgShowAlert('Ошибка: ' + e.message);
+    tgShowAlert('Ошибка отправки: ' + e.message);
   }
 }
 
