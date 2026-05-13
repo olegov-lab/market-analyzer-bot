@@ -97,6 +97,8 @@ services:
     volumes:
       - model_data:/app/models
       - ./btcbot:/app/btcbot
+      - ./bot:/app/bot
+      - ./backend:/app/backend
     restart: unless-stopped
 
 volumes:
