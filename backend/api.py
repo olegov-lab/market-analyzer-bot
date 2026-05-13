@@ -514,6 +514,20 @@ async def miniapp_volatility(request: Request):
     return vol.model_dump()
 
 
+@app.get("/miniapp/metcalfe")
+@limiter.limit("20/minute")
+async def miniapp_metcalfe(request: Request):
+    user_id = await _get_user_id(request)
+    if not redis_client or not db:
+        raise HTTPException(503, "Service not ready")
+    from btcbot.metcalfe import MetcalfeEngine
+    engine = MetcalfeEngine(db, redis_client)
+    result = await engine.compute()
+    if not result:
+        raise HTTPException(503, "Not enough data for Metcalfe corridor (need 30+ days)")
+    return result
+
+
 @app.get("/miniapp/news/timothy")
 @limiter.limit("10/minute")
 async def miniapp_news_timothy(request: Request):

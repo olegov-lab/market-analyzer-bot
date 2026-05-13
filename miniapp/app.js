@@ -294,6 +294,21 @@ async function renderDashboard() {
     }
 
     html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;">♻️ Обновление каждые 30с</div>';
+
+    apiCall('/miniapp/metcalfe').then(function(mc) {
+      if (!mc || document.getElementById('metcalfe-card')) return;
+      var sigEmoji = mc.signal === 'undervalued' ? '🟢' : mc.signal === 'overvalued' ? '🔴' : '🟡';
+      var sigText = mc.signal === 'undervalued' ? 'Недооценён' : mc.signal === 'overvalued' ? 'Переоценён' : 'Справедливо';
+      var mcHtml = '<div class="card" id="metcalfe-card"><div class="card-title">📐 Закон Меткалфа</div>';
+      mcHtml += '<div style="font-size:16px;font-weight:700;">' + sigEmoji + ' ' + sigText + ' (' + (mc.deviation_pct > 0 ? '+' : '') + mc.deviation_pct + '%)</div>';
+      mcHtml += '<div class="row"><span class="label">Справедливая цена</span><span class="value">$' + fmtPrice(mc.metcalfe_price) + '</span></div>';
+      mcHtml += '<div class="row"><span class="label">Коридор</span><span class="value">$' + fmtPrice(mc.lower_band) + ' – $' + fmtPrice(mc.upper_band) + '</span></div>';
+      mcHtml += '<div class="row"><span class="label">Активные адреса</span><span class="value">' + Number(mc.active_addresses).toLocaleString() + '</span></div>';
+      mcHtml += '</div>';
+      var footer = document.querySelector('#sub-content .card:last-child');
+      if (footer) footer.insertAdjacentHTML('beforebegin', mcHtml);
+    }).catch(function(){});
+
     renderSub(html);
   } catch (e) {
     renderSub('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + escapeHtml(e.message) + '</div></div>');
@@ -667,6 +682,7 @@ async function renderChart(overrideTf, overrideInd) {
         <button class="chart-btn active" data-ct="candlestick">Свечи</button>
         <button class="chart-btn" data-ct="line">Линия</button>
         <button class="chart-btn" data-ct="area">Область</button>
+        <button class="chart-btn" data-ct="metcalfe">📐</button>
       </div>
     </div>
     <div class="chart-container" id="chart-container">
@@ -688,6 +704,19 @@ async function renderChart(overrideTf, overrideInd) {
   document.querySelectorAll('[data-ct]').forEach(btn => {
     btn.addEventListener('click', () => {
       haptic('medium');
+      var ct = btn.dataset.ct;
+      if (ct === 'metcalfe') {
+        btn.classList.toggle('active');
+        if (btn.classList.contains('active') && lastCandles) {
+          _addChartOverlay(lastCandles, 'METCALFE');
+        } else {
+          if (window._metcalfeSeries) {
+            window._metcalfeSeries.forEach(function(s) { try { chartInstance.removeSeries(s); } catch(e) {} });
+            window._metcalfeSeries = [];
+          }
+        }
+        return;
+      }
       document.querySelectorAll('[data-ct]').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       chartType = btn.dataset.ct;
@@ -899,6 +928,18 @@ function _addChartOverlay(candles, indicator) {
     _addSubChart(times, rsi, 'RSI(14)', 0, 100, 30, 70);
   } else if (indicator === 'VOL') {
     _addSubChart(times, candles.map(function(c) { return c.volume; }), 'Volume', 0, null, null, null);
+  } else if (indicator === 'METCALFE') {
+    apiCall('/miniapp/metcalfe').then(function(data) {
+      if (!data || !data.history || !data.history.length) return;
+      var mtTimes = data.history.map(function(d) { return d.time; });
+      if (window._metcalfeSeries) {
+        window._metcalfeSeries.forEach(function(s) { try { chartInstance.removeSeries(s); } catch(e) {} });
+      }
+      window._metcalfeSeries = [];
+      window._metcalfeSeries.push(_addLineSeries(mtTimes, data.history.map(function(d) { return d.upper; }), 'rgba(255,23,68,0.35)', 1));
+      window._metcalfeSeries.push(_addLineSeries(mtTimes, data.history.map(function(d) { return d.metcalfe_price; }), 'rgba(255,193,7,0.7)', 2));
+      window._metcalfeSeries.push(_addLineSeries(mtTimes, data.history.map(function(d) { return d.lower; }), 'rgba(0,200,83,0.35)', 1));
+    }).catch(function(){});
   }
   chartOverlay = null;
 }
@@ -951,7 +992,9 @@ function _addLineSeries(times, values, color, width) {
   for (var i = 0; i < times.length; i++) {
     if (values[i] != null) data.push({ time: times[i], value: values[i] });
   }
-  chartInstance.addLineSeries({ color: color, lineWidth: width, priceLineVisible: false }).setData(data);
+  var series = chartInstance.addLineSeries({ color: color, lineWidth: width, priceLineVisible: false });
+  series.setData(data);
+  return series;
 }
 
 function _addSubChart(times, values, label, min, max, lowLine, highLine) {

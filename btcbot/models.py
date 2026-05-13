@@ -101,3 +101,17 @@ class VolatilityData(BaseModel):
     atr_pct: float
     percentile: float
     history: list[float]
+
+
+class MetcalfeCorridor(BaseModel):
+    time: datetime
+    active_addresses: int
+    metcalfe_price: float
+    upper_band: float
+    lower_band: float
+    actual_price: float
+    deviation_pct: float
+    coefficient_k: float
+    signal: str  # overvalued / fair / undervalued
+    history: list[dict] = []
+    dataset_days: int = 0

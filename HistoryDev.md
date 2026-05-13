@@ -414,3 +414,26 @@ General Task — Consult agents on PRO upgrade UI
 - AI-чат — полноэкранный overlay при клике на мозг, кнопка закрытия ✕
 - Убран авто-fade орбиты — всегда видима
 - `setActiveNav()` переписан с `.nav-btn` на `.orbital-btn`
+
+## Сессия 39: Деплой на новый сервер + HTTPS-туннель (13.05.2026)
+- Новый сервер: **89.127.215.15** (Fornex, Ubuntu 24.04, 1 vCPU, 2GB RAM, 20GB SSD)
+- Docker 29.4.3 + Docker Compose v5.1.3 установлены через `get.docker.com`
+- Git clone `master`, создан `.env` (токен бота, API-ключ OpenCode Go, MINIAPP_URL)
+- **P0 fix:** `btcbot/config.py` — `extra="allow"` в model_config, чтобы `POSTGRES_PASSWORD` из docker-compose не ронял сервисы
+- **HTTPS Mini App:** Cloudflare quick tunnel → `https://pound-klein-delivery-headlines.trycloudflare.com/miniapp`
+- `cloudflared-wrapper.sh` + systemd-сервис: автостарт тунеля, автообновление `.env` при смене URL, перезапуск бота через `up -d --force-recreate`
+- Все 6 контейнеров запущены: postgres+redis healthy, collector (Binance WS + 2168 seed), scheduler, API (8000), bot
+- API отвечает: `/health` → `{"status":"ok"}`, `/` → `{"status":"backend running"}`
+- Кнопка `📊 BTC` в Telegram menu button работает через HTTPS
+
+## Сессия 40: Коридор Меткалфа (13.05.2026)
+- **Sigma-Architect** спроектировал архитектуру: модель, API, сбор данных, фронтенд
+- `btcbot/metcalfe.py` — `MetcalfeEngine`: формула `price ∝ active_addresses²`, скользящая медиана `k` за 365 дней, коридор ±30%, сигнал overvalued/fair/undervalued
+- `btcbot/models.py` — модель `MetcalfeCorridor` (12 полей + history)
+- `btcbot/collector.py` — `_metcalfe_loop()`: сбор active_addresses с blockchain.info, раз в 6 часов в `onchain_metrics`
+- `backend/api.py` — `GET /miniapp/metcalfe`: вычисление коридора, Redis-кеш 6ч
+- `miniapp/app.js`:
+  - Карточка «📐 Закон Меткалфа» на дашборде (справедливая цена, коридор, deviation %, адреса)
+  - Кнопка 📐 в chart-controls — toggle overlay: 3 линии (upper 🔴, fair 🟡, lower 🟢) на графике
+  - `_addLineSeries()` возвращает series для cleanup при переключении
+- **Источник:** blockchain.info `n-unique-addresses` (free, no API key)

@@ -103,6 +103,7 @@ class PriceCollector:
             self._binance_ws_loop(),
             self._coingecko_loop(),
             self._bitview_loop(),
+            self._metcalfe_loop(),
             self._futures_loop(),
             self._buffer.flush_loop(),
             self._volume_stats_loop(),
@@ -216,6 +217,27 @@ class PriceCollector:
                     logger.error("Bitview error {}: {}", series_name, e)
 
             await asyncio.sleep(3600)
+
+    async def _metcalfe_loop(self) -> None:
+        while self._running:
+            try:
+                url = f"{BLOCKCHAIN_URL}?timespan=5days&format=json"
+                async with self._session.get(url) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        values = data.get("values", [])
+                        if values:
+                            last = values[-1]
+                            ts = datetime.fromtimestamp(last["x"], tz=timezone.utc)
+                            record = OnchainMetric(
+                                time=ts, metric_name="active_addresses",
+                                value=float(last["y"]), source="blockchain_com",
+                            )
+                            await self.db.save_onchain_metric(record)
+                            logger.info("Metcalfe active_addresses: {}", int(last["y"]))
+            except Exception as e:
+                logger.error("Metcalfe loop error: {}", e)
+            await asyncio.sleep(21600)  # 6 hours
 
     async def _futures_loop(self) -> None:
         while self._running:
