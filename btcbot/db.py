@@ -206,6 +206,15 @@ class Database:
                     updated_at TIMESTAMPTZ DEFAULT NOW()
                 )
             """)
+            for col, col_def in [
+                ("ton_wallet", "TEXT"),
+                ("created_at", "TIMESTAMPTZ DEFAULT NOW()"),
+                ("updated_at", "TIMESTAMPTZ DEFAULT NOW()"),
+            ]:
+                try:
+                    await conn.execute(f"ALTER TABLE user_subscriptions ADD COLUMN IF NOT EXISTS {col} {col_def}")
+                except Exception:
+                    pass
 
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS crypto_payments (
