@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     ton_pro_price_ton: float = 2.0
     ton_pro_plus_price_ton: float = 5.0
     toncenter_api_url: str = "https://toncenter.com/api/v3"
+    openai_api_key: str = ""
 
     @property
     def miniapp_url_normalized(self) -> str:

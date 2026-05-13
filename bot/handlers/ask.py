@@ -1,6 +1,10 @@
+import io
+import time
+
 from aiogram import F
 from aiogram.filters import Command, or_f
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo
+from loguru import logger
 
 from backend.agents import ask_agent
 from bot.state import analyzer, bot, db, dp, fear_greed, menu_kb, redis_client, _ts
@@ -162,8 +166,75 @@ async def voice_ask(message: Message):
             reply_markup=menu_kb,
         )
         return
-    await message.answer(
-        "🎤 Голосовой ввод активирован. Обработка голоса будет доступна в следующем обновлении.\n\n"
-        "Пока используйте текстовый ввод: `/ask ваш вопрос`",
-        reply_markup=menu_kb,
-    )
+
+    if not settings.openai_api_key:
+        await message.answer("🎤 Голосовой ввод не настроен.", reply_markup=menu_kb)
+        return
+
+    # Rate limit check
+    pending_key = f"{PENDING_PREFIX}{user_id}"
+    if redis_client and await redis_client.exists(pending_key):
+        await message.answer("⏳ Подождите, обрабатываю предыдущий запрос...", reply_markup=menu_kb)
+        return
+
+    if redis_client:
+        await redis_client.setex(pending_key, PENDING_TTL, "1")
+
+    await bot.send_chat_action(message.chat.id, "typing")
+    status_msg = await message.answer("🎤 Распознаю голос...\n\n" + _ts(), reply_markup=menu_kb)
+
+    try:
+        file_info = await bot.get_file(message.voice.file_id)
+        file_bytes = await bot.download_file(file_info.file_path)
+        buf = io.BytesIO()
+        buf.write(file_bytes.read())
+        voice_data = buf.getvalue()
+
+        from bot.handlers.voice import transcribe_voice
+        text = await transcribe_voice(voice_data, settings.openai_api_key)
+
+        if not text:
+            await status_msg.edit_text("❌ Не удалось распознать голос.", reply_markup=menu_kb)
+            if redis_client:
+                await redis_client.delete(pending_key)
+            return
+
+        await status_msg.edit_text(f"🗣 *{text[:200]}{'...' if len(text) > 200 else ''}*\n\n⏳ Анализирую...\n\n{_ts()}", parse_mode="Markdown", reply_markup=menu_kb)
+        await bot.send_chat_action(message.chat.id, "typing")
+
+        price, indicators, fng, pred = await safe_gather(
+            db.get_latest_price("BTCUSD"),
+            analyzer.compute_indicators(),
+            fear_greed.fetch(),
+            analyzer.predict(),
+            log_prefix="voice_ask",
+        )
+
+        ctx = f"Date: {message.date.strftime('%Y-%m-%d %H:%M UTC')}\n"
+        if price:
+            ctx += f"BTC price: ${price:,.2f}\n"
+        if indicators and indicators.rsi is not None:
+            ctx += f"RSI(14): {indicators.rsi:.1f} | MA50: ${indicators.ma_50:,.0f} | MA200: ${indicators.ma_200:,.0f}\n" if indicators.ma_50 and indicators.ma_200 else ""
+        if fng:
+            ctx += f"Fear & Greed: {fng.value}/100 ({fng.classification})\n"
+
+        answer = await ask_agent("marketbrain", f"{ctx}\nUser asked via voice: {text}")
+        parsed_text, chart_markers = _parse_chart_markers(answer)
+        await status_msg.delete()
+
+        if chart_markers:
+            reply_markup = _build_chart_keyboard(chart_markers)
+            for chunk in _split_long_message(parsed_text[:4000]):
+                await message.answer(chunk, parse_mode="HTML", reply_markup=reply_markup)
+        else:
+            for chunk in _split_long_message(parsed_text[:4000]):
+                await message.answer(chunk, parse_mode="HTML", reply_markup=menu_kb)
+    except Exception as e:
+        logger.error("Voice handler error: {}", e)
+        try:
+            await status_msg.edit_text("❌ Ошибка обработки голоса.", reply_markup=menu_kb)
+        except Exception:
+            pass
+    finally:
+        if redis_client:
+            await redis_client.delete(pending_key)
