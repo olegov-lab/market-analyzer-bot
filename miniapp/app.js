@@ -34,6 +34,23 @@ if (!Telegram) {
   initData = '';
 }
 
+document.addEventListener('click', function(e) {
+  var btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  var action = btn.getAttribute('data-action');
+  var tier = btn.getAttribute('data-tier');
+  var paymentId = btn.getAttribute('data-payment-id');
+  var uri = btn.getAttribute('data-uri');
+
+  if (action === 'subscribe') subscribeTier(tier);
+  else if (action === 'cryptoPay') createCryptoPayment(tier);
+  else if (action === 'switchPayment') switchPaymentMethod(tier);
+  else if (action === 'linkWallet') linkTonWallet();
+  else if (action === 'verifyPayment') verifyAndActivate(parseInt(paymentId));
+  else if (action === 'openTonUri') openTonUri(uri);
+  else if (action === 'copyAddress') copyToClipboard(btn.getAttribute('data-address'));
+});
+
 async function apiCall(path, options = {}, timeout = 15000) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -1238,8 +1255,8 @@ async function renderUpgradePage() {
     html += '</div>';
 
     html += '<div class="payment-method-selector">';
-    html += '<button class="payment-method' + (paymentMethod === 'stars' ? ' active' : '') + '" data-method="stars" onclick="switchPaymentMethod(\'stars\')">💎 Stars</button>';
-    html += '<button class="payment-method' + (paymentMethod === 'ton' ? ' active' : '') + '" data-method="ton" onclick="switchPaymentMethod(\'ton\')">💠 TON</button>';
+    html += '<button class="payment-method' + (paymentMethod === 'stars' ? ' active' : '') + '" data-method="stars" data-action="switchPayment" data-tier="stars">💎 Stars</button>';
+    html += '<button class="payment-method' + (paymentMethod === 'ton' ? ' active' : '') + '" data-method="ton" data-action="switchPayment" data-tier="ton">💠 TON</button>';
     html += '</div>';
 
     if (paymentMethod === 'ton') {
@@ -1250,7 +1267,7 @@ async function renderUpgradePage() {
         html += '<div class="wallet-chip"><span style="width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block;"></span> ' + shortAddr + '</div>';
         window._tonWallet = walletData.wallet_address;
       } else {
-        html += '<div class="connect-wallet-wrap"><input class="wallet-input" id="ton-wallet-input" placeholder="Вставьте адрес TON кошелька..." style="flex:1;padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px;font-family:inherit;"><button class="upgrade-btn" onclick="linkTonWallet()" style="margin:0;flex-shrink:0;">🔌 Подключить</button></div>';
+        html += '<div class="connect-wallet-wrap"><input class="wallet-input" id="ton-wallet-input" placeholder="Вставьте адрес TON кошелька..." style="flex:1;padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px;font-family:inherit;"><button class="upgrade-btn" data-action="linkWallet" style="margin:0;flex-shrink:0;">🔌 Подключить</button></div>';
         html += '<div style="font-size:10px;color:var(--hint);margin-top:4px;">Адрес начинается с UQ...</div>';
       }
     }
@@ -1275,9 +1292,9 @@ async function renderUpgradePage() {
     if (isPro) html += '<div class="upgrade-current-badge">Активна</div>';
     else if (!isProPlus) {
       if (paymentMethod === 'ton') {
-        html += '<button class="upgrade-btn" onclick="createCryptoPayment(\'pro\')">Купить за 2 TON</button>';
+        html += '<button class="upgrade-btn" data-action="cryptoPay" data-tier="pro">Купить за 2 TON</button>';
       } else {
-        html += '<button class="upgrade-btn" onclick="subscribeTier(\'pro\')">Подписаться за 80 ⭐</button>';
+        html += '<button class="upgrade-btn" data-action="subscribe" data-tier="pro">Подписаться за 80 ⭐</button>';
       }
     }
     html += '</div>';
@@ -1291,9 +1308,9 @@ async function renderUpgradePage() {
     if (isProPlus) html += '<div class="upgrade-current-badge">Активна</div>';
     else {
       if (paymentMethod === 'ton') {
-        html += '<button class="upgrade-btn plus" onclick="createCryptoPayment(\'pro_plus\')">Купить за 5 TON</button>';
+        html += '<button class="upgrade-btn plus" data-action="cryptoPay" data-tier="pro_plus">Купить за 5 TON</button>';
       } else {
-        html += '<button class="upgrade-btn plus" onclick="subscribeTier(\'pro_plus\')">Подписаться за 200 ⭐</button>';
+        html += '<button class="upgrade-btn plus" data-action="subscribe" data-tier="pro_plus">Подписаться за 200 ⭐</button>';
       }
     }
     html += '</div>';
@@ -1342,11 +1359,11 @@ async function createCryptoPayment(tier) {
     window._currentPaymentId = pay.payment_id;
     var html = '<div class="card" id="crypto-pay-card"><div class="card-title">💠 Оплата ' + pay.amount_ton + ' TON</div>';
     html += '<div style="margin:8px 0;font-size:11px;color:var(--hint);">Отправьте точно <b>' + pay.amount_ton + ' TON</b> на адрес:</div>';
-    html += '<div class="payment-address" onclick="copyToClipboard(\'' + pay.recipient_wallet + '\')">' + pay.recipient_wallet + ' <span style="color:var(--btn);font-size:10px;">(копировать)</span></div>';
+    html += '<div class="payment-address" data-action="copyAddress" data-address="' + pay.recipient_wallet + '" style="cursor:pointer;">' + pay.recipient_wallet + ' <span style="color:var(--btn);font-size:10px;">(копировать)</span></div>';
     html += '<div style="font-size:11px;color:var(--hint);">Комментарий: <b>' + pay.comment + '</b></div>';
     html += '<div style="display:flex;gap:8px;margin-top:12px;">';
-    html += '<button class="upgrade-btn" style="flex:1;" onclick="openTonUri(\'' + escapeHtml(pay.ton_uri) + '\')">🔄 Открыть кошелёк</button>';
-    html += '<button class="upgrade-btn" style="flex:1;background:var(--green);" onclick="verifyAndActivate(' + pay.payment_id + ')">✅ Я оплатил</button>';
+    html += '<button class="upgrade-btn" style="flex:1;" data-action="openTonUri" data-uri="' + escapeHtml(pay.ton_uri) + '">🔄 Открыть кошелёк</button>';
+    html += '<button class="upgrade-btn" style="flex:1;background:var(--green);" data-action="verifyPayment" data-payment-id="' + pay.payment_id + '">✅ Я оплатил</button>';
     html += '</div>';
     html += '<div style="margin-top:8px;font-size:11px;color:var(--hint);text-align:center;" id="pay-status">Ожидание платежа...</div>';
     html += '</div>';
