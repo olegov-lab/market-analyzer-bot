@@ -11,6 +11,7 @@ from bot.state import analyzer, bot, db, dp, fear_greed, menu_kb, redis_client, 
 from btcbot.config import settings
 from btcbot.subscription import get_ask_count_today, has_feature, increment_ask_count
 from btcbot.utils import safe_gather
+from bot.handlers.voice import transcribe_voice
 
 
 PENDING_TTL = 120
@@ -186,7 +187,6 @@ async def voice_ask(message: Message):
         buf.write(file_bytes.read())
         voice_data = buf.getvalue()
 
-    from bot.handlers.voice import transcribe_voice
         text = await transcribe_voice(voice_data, settings.openai_api_key)
 
         if not text:
