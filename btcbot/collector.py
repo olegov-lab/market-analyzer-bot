@@ -14,6 +14,7 @@ from btcbot.models import OnchainMetric, PriceRecord
 BITVIEW_BASE = "https://bitview.space/api/series"
 BYBIT_BASE = "https://api.bybit.com/v5/market"
 OKX_BASE = "https://www.okx.com/api/v5/public"
+BLOCKCHAIN_URL = "https://api.blockchain.info/charts/n-unique-addresses"
 
 BITVIEW_METRICS = {
     "mvrv": "mvrv_z_score",
