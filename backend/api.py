@@ -794,6 +794,55 @@ async def game_leaderboard(request: Request):
     return await game_engine.get_leaderboard()
 
 
+# ─── Gamification endpoints ─────────────────────────────────────────
+
+@app.get("/miniapp/game/league")
+@limiter.limit("30/minute")
+async def game_league(request: Request):
+    user_id = await _get_user_id(request)
+    user = await game_engine.db.get_or_create_game_user(user_id)
+    return game_engine.compute_league(user["total_pnl"] or 0)
+
+
+@app.get("/miniapp/game/tournament")
+@limiter.limit("30/minute")
+async def game_tournament(request: Request):
+    user_id = await _get_user_id(request)
+    return await game_engine.get_tournament_state(user_id)
+
+
+@app.post("/miniapp/game/tournament/{tournament_id}/join")
+@limiter.limit("10/minute")
+async def game_tournament_join(request: Request, tournament_id: int):
+    user_id = await _get_user_id(request)
+    return await game_engine.join_tournament(tournament_id, user_id)
+
+
+@app.get("/miniapp/game/pnl-card")
+@limiter.limit("30/minute")
+async def game_pnl_card(request: Request):
+    user_id = await _get_user_id(request)
+    return await game_engine.get_pnl_card_data(user_id)
+
+
+@app.get("/miniapp/referral/stats")
+@limiter.limit("30/minute")
+async def referral_stats(request: Request):
+    user_id = await _get_user_id(request)
+    return await game_engine.get_referral_info(user_id)
+
+
+@app.post("/miniapp/referral")
+@limiter.limit("10/minute")
+async def referral_create(request: Request):
+    user_id = await _get_user_id(request)
+    body = await request.json()
+    referred_id = body.get("referred_id")
+    if not referred_id:
+        raise HTTPException(400, "referred_id required")
+    return await game_engine.add_referral(user_id, referred_id)
+
+
 # ─── Static files for Mini App ─────────────────────────────────────
 
 @app.get("/miniapp")

@@ -977,3 +977,13 @@ body {
 .wallet-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 20px; background: rgba(0,200,83,0.1); border: 1px solid var(--green); font-size: 12px; font-weight: 500; margin-bottom: 8px; }
 .connect-wallet-wrap { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
 .payment-address { font-size: 11px; word-break: break-all; background: var(--bg); padding: 10px; border-radius: 8px; margin: 8px 0; user-select: all; cursor: pointer; border: 1px solid var(--border); }
+
+/* ─── Arena ──────────────────────────────────────────────────────── */
+.arena-section { margin-bottom: 14px; }
+.arena-section-title { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+.league-banner { padding: 14px; border-radius: 12px; border: 2px solid; margin-bottom: 4px; }
+.league-progress { height: 6px; border-radius: 3px; background: var(--section-bg); margin-top: 8px; overflow: hidden; }
+.league-progress-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+.tournament-card { padding: 14px; background: var(--section-bg); border-radius: 12px; }
+.referral-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+.referral-row:last-child { border-bottom: none; }

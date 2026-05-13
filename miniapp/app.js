@@ -1089,6 +1089,7 @@ function renderMiniAppPage(sub, param) {
     <div class="sub-tabs">
       <button class="sub-tab${sub === 'lessons' ? ' active' : ''}" data-sub="lessons" onclick="navigate('miniapp','lessons')">📖 Обучение</button>
       <button class="sub-tab${sub === 'games' ? ' active' : ''}" data-sub="games" onclick="navigate('miniapp','games')">🎮 Игры</button>
+      <button class="sub-tab${sub === 'arena' ? ' active' : ''}" data-sub="arena" onclick="navigate('miniapp','arena')">🏆 Арена</button>
     </div>
     <div id="sub-content"></div>
   `);
@@ -1096,6 +1097,7 @@ function renderMiniAppPage(sub, param) {
     if (param === 'trading') renderTradingGame();
     else renderGameLobby();
   }
+  else if (sub === 'arena') renderArena();
   else if (sub === 'lessons' && param) renderLesson(param);
   else renderLearnList();
 }
@@ -1230,6 +1232,147 @@ async function renderTradingGame() {
   } catch (e) {
     renderSub('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + escapeHtml(e.message) + '</div></div>');
   }
+}
+
+// ─── Arena Page ────────────────────────────────────────────────────
+async function renderArena() {
+  stopAllPolls();
+  renderSub('<div class="skeleton skeleton-block"></div><div class="skeleton skeleton-block"></div>');
+  try {
+    var league = await apiCall('/miniapp/game/league');
+    var tourney = await apiCall('/miniapp/game/tournament');
+    var pnl = await apiCall('/miniapp/game/pnl-card');
+    var refs = await apiCall('/miniapp/referral/stats');
+
+    var html = '';
+
+    // League card
+    html += '<div class="arena-section"><div class="arena-section-title">🏆 ' + league.league_name + ' Лига</div>';
+    html += '<div class="league-banner" style="background:linear-gradient(135deg,' + league.league_color + '22,' + league.league_color + '08);border-color:' + league.league_color + '">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;">';
+    html += '<div><div style="font-size:24px;font-weight:700;">' + league.league_name + '</div>';
+    html += '<div style="font-size:12px;color:var(--hint);">P&L: ' + (league.total_pnl >= 0 ? '+' : '') + '$' + fmtPrice(league.total_pnl) + ' | Win Rate: ' + pnl.win_rate + '%</div></div>';
+    html += '<div style="font-size:40px;">' + (league.league === 'platinum' ? '👑' : league.league === 'gold' ? '🥇' : league.league === 'silver' ? '🥈' : '🥉') + '</div>';
+    html += '</div>';
+    if (league.next_league) {
+      html += '<div class="league-progress"><div class="league-progress-fill" style="width:' + league.progress_pct + '%;background:' + league.league_color + '"></div></div>';
+      html += '<div style="font-size:11px;color:var(--hint);margin-top:4px;">' + league.progress_pct.toFixed(0) + '% до ' + league.next_league_name + ' (нужно $' + fmtPrice(league.next_threshold) + ')</div>';
+    }
+    html += '</div></div>';
+
+    // Tournament card
+    html += '<div class="arena-section"><div class="arena-section-title">⚔️ Турнир</div>';
+    if (tourney.active) {
+      var endsAt = new Date(tourney.ends_at);
+      var now = new Date();
+      var remaining = Math.max(0, Math.floor((endsAt - now) / 1000));
+      var days = Math.floor(remaining / 86400);
+      var hours = Math.floor((remaining % 86400) / 3600);
+      var timeStr = days + 'д ' + hours + 'ч';
+      html += '<div class="tournament-card">';
+      html += '<div style="font-size:16px;font-weight:700;">' + tourney.name + '</div>';
+      html += '<div style="font-size:12px;color:var(--hint);margin:4px 0;">⏳ ' + timeStr + ' до конца | 🏆 ' + tourney.prize_pool_stars + ' ⭐ | 👥 ' + tourney.participants + ' участников</div>';
+      if (tourney.joined) {
+        html += '<div style="font-size:13px;color:var(--green);margin:6px 0;">✅ Вы участвуете' + (tourney.user_rank ? ' · Позиция: #' + tourney.user_rank : '') + '</div>';
+      } else {
+        html += '<button class="upgrade-btn" data-action="joinTournament" data-id="' + tourney.id + '">⚔️ Вступить</button>';
+      }
+      if (tourney.leaderboard && tourney.leaderboard.length) {
+        html += '<div style="margin-top:8px;">';
+        for (var i = 0; i < Math.min(5, tourney.leaderboard.length); i++) {
+          var lb = tourney.leaderboard[i];
+          var medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1);
+          html += '<div class="referral-row"><span>' + medal + ' ' + (lb.username || 'User ' + lb.user_id) + '</span><span style="color:' + (lb.pnl_delta >= 0 ? 'var(--green)' : 'var(--red)') + '">' + (lb.pnl_delta >= 0 ? '+' : '') + '$' + fmtPrice(lb.pnl_delta) + '</span></div>';
+        }
+        html += '</div>';
+      }
+      html += '</div>';
+    } else if (tourney.upcoming) {
+      html += '<div class="tournament-card">';
+      html += '<div style="font-size:16px;font-weight:700;">' + tourney.upcoming.name + '</div>';
+      html += '<div style="font-size:12px;color:var(--hint);margin:4px 0;">📅 Старт: ' + new Date(tourney.upcoming.starts_at).toLocaleDateString() + ' | 🏆 ' + tourney.upcoming.prize_pool_stars + ' ⭐</div>';
+      html += '</div>';
+    } else {
+      html += '<div class="card" style="text-align:center;color:var(--hint);">Нет активных турниров</div>';
+    }
+    html += '</div>';
+
+    // PnL card
+    html += '<div class="arena-section"><div class="arena-section-title">📤 P&L Карточка</div>';
+    html += '<div class="card">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;">';
+    html += '<div><div style="font-weight:700;">$' + fmtPrice(pnl.balance) + '</div><div style="font-size:11px;color:var(--hint);">Баланс</div></div>';
+    html += '<div><div style="font-weight:700;color:' + (pnl.total_pnl >= 0 ? 'var(--green)' : 'var(--red)') + '">' + (pnl.total_pnl >= 0 ? '+' : '') + '$' + fmtPrice(pnl.total_pnl) + '</div><div style="font-size:11px;color:var(--hint);">P&L</div></div>';
+    html += '<div><div style="font-weight:700;">' + pnl.win_rate + '%</div><div style="font-size:11px;color:var(--hint);">Win Rate</div></div>';
+    html += '</div>';
+    html += '<button class="upgrade-btn" style="width:100%;margin-top:10px;" data-action="sharePnl">📤 Поделиться в чат</button>';
+    html += '</div></div>';
+
+    // Referrals
+    html += '<div class="arena-section"><div class="arena-section-title">👥 Рефералы</div>';
+    html += '<div class="card">';
+    html += '<div style="display:flex;justify-content:space-between;margin-bottom:8px;">';
+    html += '<span>Приглашено: <b>' + refs.count + '</b></span><span>Бонусов: <b>+$' + refs.total_bonus.toFixed(0) + '</b></span>';
+    html += '</div>';
+    html += '<div class="payment-address" data-action="copyText" data-copy="' + refs.ref_link + '" style="font-size:10px;text-align:center;cursor:pointer;">' + refs.ref_link + ' <span style="color:var(--btn);">(копировать)</span></div>';
+    for (var j = 0; j < Math.min(5, refs.referrals.length); j++) {
+      var ref = refs.referrals[j];
+      html += '<div class="referral-row"><span>👤 ' + (ref.username || 'User ' + ref.referred_id) + '</span><span style="color:var(--green);">+$' + ref.bonus_usd + ' ' + (ref.bonus_credited ? '✅' : '⏳') + '</span></div>';
+    }
+    html += '</div></div>';
+
+    renderSub(html);
+  } catch (e) {
+    renderSub('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + escapeHtml(e.message) + '</div></div>');
+  }
+}
+
+// Add delegated handlers for arena actions
+(function() {
+  var origHandler = document._arenaHandler;
+  if (!origHandler) {
+    document._arenaHandler = true;
+    document.addEventListener('click', function(e) {
+      var btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      var action = btn.getAttribute('data-action');
+      if (action === 'joinTournament') {
+        var tid = parseInt(btn.getAttribute('data-id'));
+        joinTournament(tid);
+      } else if (action === 'sharePnl') {
+        sharePnlCard();
+      } else if (action === 'copyText') {
+        copyToClipboard(btn.getAttribute('data-copy') || '');
+      }
+    });
+  }
+})();
+
+async function joinTournament(tournamentId) {
+  haptic('heavy');
+  try {
+    await apiCall('/miniapp/game/tournament/' + tournamentId + '/join', { method: 'POST' });
+    tgShowAlert('✅ Вы вступили в турнир!');
+    renderArena();
+  } catch(e) { tgShowAlert('Ошибка: ' + e.message); }
+}
+
+function sharePnlCard() {
+  haptic('medium');
+  apiCall('/miniapp/game/pnl-card').then(function(d) {
+    var text = '🏆 BTC Monitor · ' + d.league.league_name + ' Лига\n';
+    text += '💰 Баланс: $' + fmtPrice(d.balance) + '\n';
+    text += '📈 P&L: ' + (d.total_pnl >= 0 ? '+' : '') + '$' + fmtPrice(d.total_pnl) + '\n';
+    text += '🎯 Win Rate: ' + d.win_rate + '%\n';
+    text += '⭐ Звёзд: ' + d.stars + '\n';
+    text += '🎮 Торгуй вместе со мной: ' + window.location.origin + '/miniapp';
+    try {
+      Telegram.openTelegramLink('https://t.me/share/url?url=' + encodeURIComponent(text));
+    } catch(_) {
+      copyToClipboard(text);
+      tgShowAlert('Текст скопирован. Отправь в любой чат!');
+    }
+  }).catch(function(e) { tgShowAlert('Ошибка: ' + e.message); });
 }
 
 // ─── Upgrade / PRO Page ────────────────────────────────────────────

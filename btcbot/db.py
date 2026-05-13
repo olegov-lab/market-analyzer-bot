@@ -242,10 +242,15 @@ class Database:
                     total_pnl DOUBLE PRECISION DEFAULT 0,
                     total_trades INT DEFAULT 0,
                     winning_trades INT DEFAULT 0,
+                    stars BIGINT DEFAULT 0,
                     created_at TIMESTAMPTZ DEFAULT NOW(),
                     updated_at TIMESTAMPTZ DEFAULT NOW()
                 )
             """)
+            try:
+                await conn.execute("ALTER TABLE game_users ADD COLUMN IF NOT EXISTS stars BIGINT DEFAULT 0")
+            except Exception:
+                pass
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS positions (
                     id BIGSERIAL PRIMARY KEY,
@@ -288,6 +293,43 @@ class Database:
                 WHERE gu.total_trades >= 1
                 ORDER BY gu.total_pnl DESC
                 LIMIT 20
+            """)
+
+            # --- Gamification tables ---
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS tournaments (
+                    id BIGSERIAL PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    starts_at TIMESTAMPTZ NOT NULL,
+                    ends_at TIMESTAMPTZ NOT NULL,
+                    prize_pool_stars INT NOT NULL DEFAULT 500,
+                    status TEXT NOT NULL DEFAULT 'upcoming'
+                        CHECK (status IN ('upcoming','active','finished'))
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS tournament_entries (
+                    tournament_id BIGINT REFERENCES tournaments(id) ON DELETE CASCADE,
+                    user_id BIGINT REFERENCES game_users(user_id) ON DELETE CASCADE,
+                    start_pnl DOUBLE PRECISION NOT NULL DEFAULT 0,
+                    final_pnl DOUBLE PRECISION,
+                    pnl_delta DOUBLE PRECISION,
+                    rank INT,
+                    prize_stars INT DEFAULT 0,
+                    joined_at TIMESTAMPTZ DEFAULT NOW(),
+                    PRIMARY KEY (tournament_id, user_id)
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS referrals (
+                    id BIGSERIAL PRIMARY KEY,
+                    referrer_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+                    referred_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+                    bonus_usd DOUBLE PRECISION NOT NULL DEFAULT 5,
+                    bonus_credited BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE (referrer_id, referred_id)
+                )
             """)
 
     async def save_price(self, record: Any) -> None:
@@ -716,3 +758,113 @@ class Database:
     async def get_leaderboard(self) -> list[asyncpg.Record]:
         async with self.pool.acquire() as conn:
             return await conn.fetch("SELECT * FROM leaderboard_mv ORDER BY rank")
+
+    # ─── Tournament methods ─────────────────────────────────────────
+
+    async def create_tournament(self, name: str, starts_at, ends_at, prize_pool: int = 500) -> asyncpg.Record:
+        async with self.pool.acquire() as conn:
+            return await conn.fetchrow(
+                "INSERT INTO tournaments (name, starts_at, ends_at, prize_pool_stars, status) VALUES ($1,$2,$3,$4,'upcoming') RETURNING *",
+                name, starts_at, ends_at, prize_pool,
+            )
+
+    async def get_active_tournament(self) -> Optional[asyncpg.Record]:
+        async with self.pool.acquire() as conn:
+            return await conn.fetchrow(
+                "SELECT * FROM tournaments WHERE status = 'active' ORDER BY ends_at ASC LIMIT 1"
+            )
+
+    async def get_tournaments(self) -> list[asyncpg.Record]:
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(
+                "SELECT * FROM tournaments ORDER BY starts_at DESC LIMIT 10"
+            )
+
+    async def get_tournament(self, tournament_id: int) -> Optional[asyncpg.Record]:
+        async with self.pool.acquire() as conn:
+            return await conn.fetchrow("SELECT * FROM tournaments WHERE id = $1", tournament_id)
+
+    async def join_tournament(self, tournament_id: int, user_id: int, current_pnl: float) -> asyncpg.Record:
+        async with self.pool.acquire() as conn:
+            return await conn.fetchrow(
+                "INSERT INTO tournament_entries (tournament_id, user_id, start_pnl) VALUES ($1,$2,$3) "
+                "ON CONFLICT (tournament_id, user_id) DO NOTHING RETURNING *",
+                tournament_id, user_id, current_pnl,
+            )
+
+    async def get_tournament_entries(self, tournament_id: int) -> list[asyncpg.Record]:
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(
+                "SELECT te.*, u.username FROM tournament_entries te "
+                "JOIN users u ON te.user_id = u.user_id "
+                "WHERE te.tournament_id = $1 ORDER BY te.start_pnl DESC",
+                tournament_id,
+            )
+
+    async def get_tournament_entry(self, tournament_id: int, user_id: int) -> Optional[asyncpg.Record]:
+        async with self.pool.acquire() as conn:
+            return await conn.fetchrow(
+                "SELECT * FROM tournament_entries WHERE tournament_id = $1 AND user_id = $2",
+                tournament_id, user_id,
+            )
+
+    async def update_tournament_rankings(self, tournament_id: int) -> None:
+        async with self.pool.acquire() as conn:
+            entries = await conn.fetch(
+                "SELECT te.user_id, gu.total_pnl - te.start_pnl AS pnl_delta "
+                "FROM tournament_entries te JOIN game_users gu ON te.user_id = gu.user_id "
+                "WHERE te.tournament_id = $1 ORDER BY pnl_delta DESC",
+                tournament_id,
+            )
+            prizes = [250, 150, 75, 25]
+            for i, entry in enumerate(entries):
+                prize = prizes[i] if i < len(prizes) else 0
+                await conn.execute(
+                    "UPDATE tournament_entries SET final_pnl = (SELECT total_pnl FROM game_users WHERE user_id=$1), "
+                    "pnl_delta = $2, rank = $3, prize_stars = $4 WHERE tournament_id = $5 AND user_id = $1",
+                    entry["user_id"], float(entry["pnl_delta"]), i + 1, prize, tournament_id,
+                )
+                if prize > 0:
+                    await conn.execute(
+                        "UPDATE game_users SET stars = stars + $1 WHERE user_id = $2",
+                        prize, entry["user_id"],
+                    )
+            await conn.execute("UPDATE tournaments SET status = 'finished' WHERE id = $1", tournament_id)
+
+    # ─── Referral methods ───────────────────────────────────────────
+
+    async def create_referral(self, referrer_id: int, referred_id: int, bonus_usd: float = 5.0) -> bool:
+        async with self.pool.acquire() as conn:
+            try:
+                await conn.execute(
+                    "INSERT INTO referrals (referrer_id, referred_id, bonus_usd) VALUES ($1,$2,$3) "
+                    "ON CONFLICT (referrer_id, referred_id) DO NOTHING",
+                    referrer_id, referred_id, bonus_usd,
+                )
+                return True
+            except Exception:
+                return False
+
+    async def credit_referral_bonus(self, referral_id: int) -> None:
+        async with self.pool.acquire() as conn:
+            ref = await conn.fetchrow("SELECT referrer_id, bonus_usd FROM referrals WHERE id = $1 AND NOT bonus_credited", referral_id)
+            if ref:
+                await conn.execute("UPDATE game_users SET balance = balance + $1, updated_at = NOW() WHERE user_id = $2",
+                                   ref["bonus_usd"], ref["referrer_id"])
+                await conn.execute("UPDATE referrals SET bonus_credited = TRUE WHERE id = $1", referral_id)
+
+    async def get_referral_stats(self, referrer_id: int) -> dict:
+        async with self.pool.acquire() as conn:
+            count = await conn.fetchval("SELECT COUNT(*) FROM referrals WHERE referrer_id = $1", referrer_id)
+            total_bonus = await conn.fetchval("SELECT COALESCE(SUM(bonus_usd), 0) FROM referrals WHERE referrer_id = $1 AND bonus_credited", referrer_id)
+            rows = await conn.fetch(
+                "SELECT r.id, r.referred_id, u.username, r.bonus_usd, r.bonus_credited, r.created_at "
+                "FROM referrals r JOIN users u ON r.referred_id = u.user_id "
+                "WHERE r.referrer_id = $1 ORDER BY r.created_at DESC LIMIT 20",
+                referrer_id,
+            )
+            return {"count": count or 0, "total_bonus": float(total_bonus or 0), "referrals": [dict(r) for r in rows]}
+
+    async def add_stars(self, user_id: int, amount: int) -> None:
+        async with self.pool.acquire() as conn:
+            await conn.execute("UPDATE game_users SET stars = stars + $1 WHERE user_id = $2", amount, user_id)

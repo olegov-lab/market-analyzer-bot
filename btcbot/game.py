@@ -157,3 +157,112 @@ class GameEngine:
             }
             for r in rows
         ]
+
+    # ─── Gamification ───────────────────────────────────────────────
+
+    LEAGUES = {"platinum": 10000, "gold": 2000, "silver": 500, "bronze": float("-inf")}
+    LEAGUE_NAMES = {"platinum": "Платина", "gold": "Золото", "silver": "Серебро", "bronze": "Бронза"}
+    LEAGUE_ORDER = ["bronze", "silver", "gold", "platinum"]
+    LEAGUE_COLORS = {"platinum": "#e5e4e2", "gold": "#ffd700", "silver": "#c0c0c0", "bronze": "#cd7f32"}
+
+    @staticmethod
+    def compute_league(total_pnl: float) -> dict:
+        league = "bronze"
+        for name in ["platinum", "gold", "silver"]:
+            if total_pnl >= GameEngine.LEAGUES[name]:
+                league = name
+                break
+        idx = GameEngine.LEAGUE_ORDER.index(league)
+        next_league = GameEngine.LEAGUE_ORDER[idx + 1] if idx < 3 else None
+        progress_pct = 100
+        next_threshold = 0
+        if next_league:
+            threshold = GameEngine.LEAGUES[next_league]
+            prev_threshold = GameEngine.LEAGUES[league] if league != "bronze" else 0
+            progress_pct = min(100, max(0, (total_pnl - prev_threshold) / (threshold - prev_threshold) * 100))
+            next_threshold = threshold
+        return {
+            "league": league,
+            "league_name": GameEngine.LEAGUE_NAMES[league],
+            "league_color": GameEngine.LEAGUE_COLORS[league],
+            "next_league": next_league,
+            "next_league_name": GameEngine.LEAGUE_NAMES.get(next_league),
+            "progress_pct": round(progress_pct, 1),
+            "next_threshold": next_threshold,
+            "total_pnl": round(total_pnl, 2),
+        }
+
+    async def get_tournament_state(self, user_id: int) -> dict:
+        tournament = await self.db.get_active_tournament()
+        result = {"active": False}
+        if not tournament:
+            upcoming = await self.db.get_tournaments()
+            if upcoming:
+                t = upcoming[0]
+                result["upcoming"] = {"id": t["id"], "name": t["name"], "starts_at": t["starts_at"].isoformat(),
+                                       "prize_pool_stars": t["prize_pool_stars"]}
+            return result
+
+        entry = await self.db.get_tournament_entry(tournament["id"], user_id)
+        entries = await self.db.get_tournament_entries(tournament["id"])
+        leaderboard = []
+        user_rank = None
+        for i, e in enumerate(entries):
+            gu = await self.db.get_game_user(e["user_id"])
+            pnl_delta = (gu["total_pnl"] - e["start_pnl"]) if gu else 0
+            entry_data = {"rank": i + 1, "user_id": e["user_id"], "username": e["username"] or f"User {e['user_id']}",
+                          "pnl_delta": round(pnl_delta, 2)}
+            leaderboard.append(entry_data)
+            if e["user_id"] == user_id:
+                user_rank = i + 1
+
+        return {
+            "active": True,
+            "id": tournament["id"],
+            "name": tournament["name"],
+            "ends_at": tournament["ends_at"].isoformat(),
+            "prize_pool_stars": tournament["prize_pool_stars"],
+            "participants": len(entries),
+            "joined": entry is not None,
+            "user_rank": user_rank,
+            "leaderboard": leaderboard[:20],
+        }
+
+    async def join_tournament(self, tournament_id: int, user_id: int) -> dict:
+        user = await self.db.get_or_create_game_user(user_id)
+        entry = await self.db.join_tournament(tournament_id, user_id, user["total_pnl"] or 0)
+        return {"joined": entry is not None, "tournament_id": tournament_id, "start_pnl": round(user["total_pnl"] or 0, 2)}
+
+    async def get_referral_info(self, user_id: int) -> dict:
+        stats = await self.db.get_referral_stats(user_id)
+        return {"count": stats["count"], "total_bonus": stats["total_bonus"],
+                "referrals": stats["referrals"], "ref_link": f"https://t.me/Market04ekBot?start=ref_{user_id}"}
+
+    async def add_referral(self, referrer_id: int, referred_id: int) -> dict:
+        ok = await self.db.create_referral(referrer_id, referred_id)
+        if ok:
+            refs = await self.db.get_referral_stats(referrer_id)
+            if refs["referrals"]:
+                await self.db.credit_referral_bonus(refs["referrals"][0]["id"])
+        return {"success": ok}
+
+    async def get_pnl_card_data(self, user_id: int) -> dict:
+        user = await self.db.get_or_create_game_user(user_id)
+        trades = await self.db.get_trades(user_id, limit=100)
+        league = self.compute_league(user["total_pnl"] or 0)
+        win_rate = 0
+        if user["total_trades"] > 0:
+            win_rate = round(user["winning_trades"] / user["total_trades"] * 100, 1)
+        recent = []
+        for t in trades[:5]:
+            recent.append({"pnl": round(t["pnl"], 2), "pnl_pct": round(t["pnl_pct"], 2),
+                           "side": t["side"], "closed_at": t["closed_at"].isoformat() if t["closed_at"] else None})
+        return {
+            "league": league,
+            "total_pnl": round(user["total_pnl"] or 0, 2),
+            "balance": round(user["balance"] or 0, 2),
+            "total_trades": user["total_trades"],
+            "win_rate": win_rate,
+            "stars": user["stars"] or 0,
+            "recent_trades": recent,
+        }
