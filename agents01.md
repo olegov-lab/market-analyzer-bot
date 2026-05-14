@@ -5,12 +5,13 @@
 | Model | Count | Agents |
 |-------|-------|--------|
 | **DeepSeek V4 Pro** | 10 | Break-Hunter, accountant, lawyer, project_manager, business_consultant, business_strategist, finance_analyst, Market-Brain, data_analyst, Rapid-Dev |
+| **DeepSeek V4 Flash** | 1 | Senior-Dev |
 | **GLM-5.1** | 12 | hr_recruiter, seller, advertiser, pr_specialist, seo_specialist, smm_specialist, writer, content_producer, editor, Prompt-Master, teacher, Sigma-Architect |
 | **Kimi K2.6** | 3 | screenwriter, ux_designer, ui_designer |
 
 ---
 
-## All Agents (25)
+## All Agents (26)
 
 ### 1. Sigma-Architect — `architect`
 - **Model:** GLM-5.1
@@ -142,6 +143,13 @@
 - **Temperature:** 0.9
 - **Tasks:** сцены, диалоги, структура, драматургия
 
+### 26. Senior-Dev — `senior-developer`
+- **Model:** DeepSeek V4 Flash
+- **Role:** Senior Fullstack Developer & DevOps Engineer
+- **Style:** максимальная лаконичность, фокус на коде, DRY/KISS, безопасность
+- **Workflow:** анализ → планирование → реализация → тестирование
+- **Tasks:** чистый код, готовые файлы/diff, валидация, без заглушек
+
 ---
 
 ## By Temperature
@@ -163,13 +171,13 @@
 | 0.80 | content_producer |
 | 0.85 | writer, advertiser |
 | 0.90 | screenwriter |
-| — (system) | Sigma-Architect, Rapid-Dev, Market-Brain, Break-Hunter, Prompt-Master |
+| — (system) | Sigma-Architect, Rapid-Dev, Market-Brain, Break-Hunter, Prompt-Master, Senior-Dev |
 
 ## By Role
 
 | Role | Agents |
 |------|--------|
-| **Core Dev** | Sigma-Architect, Rapid-Dev, Break-Hunter |
+| **Core Dev** | Sigma-Architect, Rapid-Dev, Break-Hunter, Senior-Dev |
 | **Crypto/Finance** | Market-Brain, finance_analyst, data_analyst, accountant |
 | **Content** | editor, writer, content_producer, screenwriter, teacher, Prompt-Master |
 | **Marketing** | smm_specialist, seo_specialist, pr_specialist, advertiser, seller |
