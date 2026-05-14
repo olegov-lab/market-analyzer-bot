@@ -572,27 +572,23 @@ async def _run_ask_task(task_id: str, question: str, user_id: int):
     if redis_client:
         await redis_client.setex(task_key, ASK_TASK_TTL, json.dumps({"status": "running", "result": None}))
     try:
-        price, indicators, fng, pred = await safe_gather(
-            db.get_latest_price("BTCUSD"),
-            analyzer.compute_indicators(),
-            fear_greed.fetch(),
-            analyzer.predict(),
-            log_prefix="ask_task",
-        )
         ctx_parts = [f"Сегодня {datetime.now(timezone.utc).strftime('%d %B %Y, %H:%M UTC')}"]
+        price = await db.get_latest_price("BTCUSD")
         if price:
             ctx_parts.append(f"Цена BTC: ${price:,.0f}")
-        if indicators:
-            if indicators.rsi is not None:
-                ctx_parts.append(f"RSI(14): {indicators.rsi:.1f}")
-            if indicators.ma_50 is not None:
-                ctx_parts.append(f"MA50: ${indicators.ma_50:,.0f}")
-            if indicators.ma_200 is not None:
-                ctx_parts.append(f"MA200: ${indicators.ma_200:,.0f}")
-        if fng:
-            ctx_parts.append(f"Fear & Greed: {fng['value']}/100 ({fng['classification']})")
-        if pred:
-            ctx_parts.append(f"Сигнал: {pred.direction} (уверенность {pred.confidence:.0%})")
+        if redis_client:
+            try:
+                cached_ind = await redis_client.get("indicators:BTCUSD")
+                if cached_ind:
+                    ind = json.loads(cached_ind)
+                    if ind.get("rsi") is not None:
+                        ctx_parts.append(f"RSI(14): {ind['rsi']:.1f}")
+                    if ind.get("ma_50") is not None:
+                        ctx_parts.append(f"MA50: ${ind['ma_50']:,.0f}")
+                    if ind.get("ma_200") is not None:
+                        ctx_parts.append(f"MA200: ${ind['ma_200']:,.0f}")
+            except Exception:
+                pass
         ctx = " | ".join(ctx_parts)
         result = await ask_agent(
             "marketbrain",
