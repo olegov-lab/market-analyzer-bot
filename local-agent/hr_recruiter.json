@@ -1,0 +1,8 @@
+{
+  "name": "hr_recruiter",
+  "model": "qwen2.5:14b",
+  "temperature": 0.45,
+  "max_tokens": 4096,
+  "system_prompt": "Ты — HR‑рекрутер. Составляешь вакансии, проводишь интервью, оцениваешь компетенции.",
+  "tools": []
+}

@@ -21,6 +21,71 @@ PENDING_PREFIX = "btc:ask:pending:"
 CHART_RE = __import__("re").compile(r'\[CHART:(\w+):(\w+)\]')
 
 
+def _rule_based_analysis(price: float | None, ind: dict | None, fng: dict | None, consensus: dict | None, vol) -> str:
+    parts = []
+    if price:
+        parts.append(f"💰 **BTC:** ${price:,.0f}")
+
+    if ind:
+        rsi = ind.get("rsi")
+        if rsi is not None:
+            if rsi < 35:
+                rsi_signal = "🟢 перепроданность"
+            elif rsi > 65:
+                rsi_signal = "🔴 перекупленность"
+            else:
+                rsi_signal = "⚪ нейтральная зона"
+            parts.append(f"📊 **RSI(14):** {rsi:.1f} — {rsi_signal}")
+
+        ma50 = ind.get("ma_50")
+        ma200 = ind.get("ma_200")
+        if price and ma50:
+            above_ma50 = price > ma50
+            parts.append(f"📈 **MA50:** ${ma50:,.0f} ({'выше' if above_ma50 else 'ниже'} цены)")
+        if price and ma200:
+            above_ma200 = price > ma200
+            parts.append(f"📈 **MA200:** ${ma200:,.0f} ({'выше' if above_ma200 else 'ниже'} цены)")
+
+    if fng:
+        val = fng["value"]
+        if val < 25:
+            cls = "😱 крайний страх"
+        elif val < 45:
+            cls = "😟 страх"
+        elif val < 55:
+            cls = "😐 нейтрально"
+        elif val < 75:
+            cls = "😊 жадность"
+        else:
+            cls = "🤩 крайняя жадность"
+        parts.append(f"😨 **F&G:** {val}/100 — {cls}")
+
+    if consensus:
+        bp = consensus.get("bullish_pct", 50)
+        if bp > 60:
+            sig = "🟢 бычий"
+        elif bp < 40:
+            sig = "🔴 медвежий"
+        else:
+            sig = "⚪ нейтральный"
+        parts.append(f"🎯 **Консенсус:** {bp}% за рост — {sig}")
+
+    if vol:
+        cls = vol.classification
+        if cls == "low":
+            vol_signal = "🟢 низкая"
+        elif cls == "medium":
+            vol_signal = "🟡 средняя"
+        elif cls == "high":
+            vol_signal = "🔴 высокая"
+        else:
+            vol_signal = "⚪ неизвестно"
+        parts.append(f"🌊 **Волатильность:** {vol_signal}")
+
+    parts.append(f"\n💡 _AI-агент временно недоступен, ответ сформирован по текущим метрикам._")
+    return "\n".join(parts)
+
+
 def _parse_chart_markers(text: str) -> tuple[str, list[InlineKeyboardButton]]:
     buttons = []
     def replacer(m):
@@ -95,6 +160,8 @@ async def ask(message: Message):
     price = await db.get_latest_price("BTCUSD")
     if price:
         ctx_parts.append(f"Цена BTC: ${price:,.0f}")
+
+    ind = None
     if redis_client:
         try:
             cached_ind = await redis_client.get("indicators:BTCUSD")
@@ -108,6 +175,14 @@ async def ask(message: Message):
                     ctx_parts.append(f"MA200: ${ind['ma_200']:,.0f}")
         except Exception:
             pass
+
+    fng = await fear_greed.fetch()
+    if fng:
+        ctx_parts.append(f"F&G: {fng['value']}/100 ({fng['classification']})")
+
+    consensus = await analyzer.compute_consensus()
+    vol = await analyzer.compute_volatility()
+
     ctx = " | ".join(ctx_parts)
 
     import asyncio as _asyncio
@@ -132,9 +207,9 @@ async def ask(message: Message):
         pass
 
     if not response or "[Agent error:" in response:
+        fallback = _rule_based_analysis(price, ind, fng, consensus, vol)
         await message.answer(
-            "❌ BTC Monitor · Аналитика\n\n"
-            "Агент временно недоступен. Попробуй позже.",
+            f"📊 BTC Monitor · Аналитика\n\n{_ts()}\n\n{fallback}\n\n♻️ Анализ на основе рыночных данных (AI временно недоступен)",
             reply_markup=menu_kb,
         )
         return
@@ -215,14 +290,24 @@ async def voice_ask(message: Message):
             ctx += f"Fear & Greed: {fng['value']}/100 ({fng['classification']})\n"
 
         answer = await ask_agent("marketbrain", f"{ctx}\nUser asked via voice: {text}")
-        parsed_text, chart_markers = _parse_chart_markers(answer)
         await status_msg.delete()
 
-        reply_markup = menu_kb
-        if chart_markers:
-            reply_markup = InlineKeyboardMarkup(inline_keyboard=[chart_markers])
-        text_to_send = parsed_text[:4000]
-        await message.answer(text_to_send, parse_mode="HTML", reply_markup=reply_markup)
+        if not answer or "[Agent error:" in answer:
+            ind_dict = {"rsi": indicators.rsi, "ma_50": indicators.ma_50, "ma_200": indicators.ma_200} if indicators else None
+            vol = await analyzer.compute_volatility()
+            consensus = await analyzer.compute_consensus()
+            fallback = _rule_based_analysis(price, ind_dict, fng, consensus, vol)
+            await message.answer(
+                f"📊 BTC Monitor · Аналитика\n\n{_ts()}\n\n{fallback}\n\n♻️ Анализ на основе рыночных данных (AI временно недоступен)",
+                reply_markup=menu_kb,
+            )
+        else:
+            parsed_text, chart_markers = _parse_chart_markers(answer)
+            reply_markup = menu_kb
+            if chart_markers:
+                reply_markup = InlineKeyboardMarkup(inline_keyboard=[chart_markers])
+            text_to_send = parsed_text[:4000]
+            await message.answer(text_to_send, parse_mode="HTML", reply_markup=reply_markup)
     except Exception as e:
         logger.error("Voice handler error: {}", e)
         try:

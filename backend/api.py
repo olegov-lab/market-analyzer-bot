@@ -608,10 +608,60 @@ async def _run_ask_task(task_id: str, question: str, user_id: int):
             if result and "[Agent error:" not in result:
                 await redis_client.setex(task_key, ASK_TASK_TTL, json.dumps({"status": "done", "result": result}, ensure_ascii=False))
             else:
-                await redis_client.setex(task_key, ASK_TASK_TTL, json.dumps({"status": "error", "result": "AI agent temporarily unavailable"}, ensure_ascii=False))
+                fallback = await _fallback_analysis(question)
+                await redis_client.setex(task_key, ASK_TASK_TTL, json.dumps({"status": "done", "result": fallback}, ensure_ascii=False))
     except Exception as e:
         if redis_client:
             await redis_client.setex(task_key, ASK_TASK_TTL, json.dumps({"status": "error", "result": str(e)}, ensure_ascii=False))
+
+
+async def _fallback_analysis(question: str) -> str:
+    parts = []
+    price = await db.get_latest_price("BTCUSD")
+    if price:
+        parts.append(f"💰 **BTC:** ${price:,.0f}")
+
+    ind = None
+    if redis_client:
+        try:
+            cached = await redis_client.get("indicators:BTCUSD")
+            if cached:
+                ind = json.loads(cached)
+                rsi = ind.get("rsi")
+                if rsi is not None:
+                    tag = "🟢 перепроданность" if rsi < 35 else ("🔴 перекупленность" if rsi > 65 else "⚪️ нейтральная")
+                    parts.append(f"📊 **RSI(14):** {rsi:.1f} — {tag}")
+                ma50 = ind.get("ma_50")
+                ma200 = ind.get("ma_200")
+                if price and ma50:
+                    parts.append(f"📈 **MA50:** ${ma50:,.0f} ({'выше' if price > ma50 else 'ниже'} цены)")
+                if price and ma200:
+                    parts.append(f"📈 **MA200:** ${ma200:,.0f} ({'выше' if price > ma200 else 'ниже'} цены)")
+        except Exception:
+            pass
+
+    try:
+        fng = await FearGreedIndex(redis_client).fetch()
+        if fng:
+            val = fng["value"]
+            label = "😱 крайний страх" if val < 25 else ("😟 страх" if val < 45 else ("😐 нейтрально" if val < 55 else ("😊 жадность" if val < 75 else "🤩 крайняя жадность")))
+            parts.append(f"😨 **F&G:** {val}/100 — {label}")
+    except Exception:
+        pass
+
+    try:
+        from btcbot.analyzer import Analyzer
+        a = Analyzer(db, redis_client)
+        consensus = await a.compute_consensus()
+        if consensus:
+            bp = consensus.get("bullish_pct", 50)
+            sig = "🟢 бычий" if bp > 60 else ("🔴 медвежий" if bp < 40 else "⚪️ нейтральный")
+            parts.append(f"🎯 **Консенсус:** {bp}% за рост — {sig}")
+    except Exception:
+        pass
+
+    parts.append(f"\n💡 _AI-агент временно недоступен, ответ сформирован по текущим метрикам._")
+    return "\n".join(parts)
 
 
 @app.post("/miniapp/ask")

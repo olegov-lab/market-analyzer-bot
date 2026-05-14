@@ -18,10 +18,16 @@ GO_MODEL_MAP = {
     "kimi k2.6": "kimi-k2.6",
 }
 
-# Models that work well for agentic tasks (fast, return content directly)
+OPENROUTER_MODEL_MAP = {
+    "deepseek-v4-pro": "minimax/minimax-m2.5:free",
+    "glm-5.1": "minimax/minimax-m2.5:free",
+    "kimi-k2.6": "minimax/minimax-m2.5:free",
+}
+
 AGENT_MODEL = "qwen3.6-plus"
 
 _client: Optional[AsyncOpenAI] = None
+_openrouter_client: Optional[AsyncOpenAI] = None
 
 
 def _get_client() -> AsyncOpenAI:
@@ -36,9 +42,26 @@ def _get_client() -> AsyncOpenAI:
     return _client
 
 
+def _get_openrouter_client() -> AsyncOpenAI:
+    global _openrouter_client
+    if _openrouter_client is None:
+        _openrouter_client = AsyncOpenAI(
+            api_key=settings.openrouter_api_key,
+            base_url="https://openrouter.ai/api/v1",
+            timeout=60.0,
+            max_retries=2,
+        )
+    return _openrouter_client
+
+
 def _resolve_model(model_str: str) -> str:
     key = model_str.strip().lower()
     return GO_MODEL_MAP.get(key, "deepseek-v4-pro")
+
+
+def _resolve_openrouter_model(model_str: str) -> str:
+    key = model_str.strip().lower()
+    return OPENROUTER_MODEL_MAP.get(key, settings.openrouter_model)
 
 
 def load_agent(name: str) -> Optional[dict]:
@@ -80,22 +103,55 @@ async def ask_agent(agent_name: str, prompt: str, temperature: Optional[float] =
     system = build_system_prompt(agent)
     temp = temperature if temperature is not None else agent.get("temperature", 0.7)
 
-    client = _get_client()
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": prompt},
     ]
 
+    if settings.openrouter_api_key:
+        return await _ask_openrouter(agent, messages, temp)
+
+    return await _ask_opencode(model, messages, temp)
+
+
+async def _ask_opencode(model: str, messages: list, temperature: float) -> Optional[str]:
+    client = _get_client()
     try:
         resp = await client.chat.completions.create(
             model=model,
             messages=messages,
-            temperature=temp,
-            max_tokens=agent.get("max_tokens", 4096),
+            temperature=temperature,
+            max_tokens=4096,
         )
         msg = resp.choices[0].message
         content = msg.content or ""
         reasoning = getattr(msg, "reasoning_content", None) or ""
+        return content or reasoning or "[empty response]"
+    except Exception as e:
+        return f"[Agent error: {e}]"
+
+
+async def _ask_openrouter(agent: dict, messages: list, temperature: float) -> Optional[str]:
+    model = _resolve_openrouter_model(agent.get("model", ""))
+    max_tokens = agent.get("max_tokens", 4096)
+    client = _get_openrouter_client()
+
+    extra_headers = {
+        "HTTP-Referer": "https://github.com/anomalyco/opencode",
+        "X-Title": "BTC Monitor",
+    }
+
+    try:
+        resp = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            extra_headers=extra_headers,
+        )
+        msg = resp.choices[0].message
+        content = msg.content or ""
+        reasoning = getattr(msg, "reasoning", None) or ""
         return content or reasoning or "[empty response]"
     except Exception as e:
         return f"[Agent error: {e}]"

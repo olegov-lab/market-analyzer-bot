@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     ton_pro_plus_price_ton: float = 5.0
     toncenter_api_url: str = "https://toncenter.com/api/v3"
     openai_api_key: str = ""
+    openrouter_api_key: str = ""
+    openrouter_model: str = "minimax/minimax-m2.5:free"
 
     @property
     def miniapp_url_normalized(self) -> str:

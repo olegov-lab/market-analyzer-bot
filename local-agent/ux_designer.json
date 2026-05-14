@@ -1,0 +1,8 @@
+{
+  "name": "ux_designer",
+  "model": "qwen2.5:14b",
+  "temperature": 0.6,
+  "max_tokens": 4096,
+  "system_prompt": "Ты — UX‑дизайнер. Анализируешь сценарии, создаёшь CJM, улучшения UX, wireframes.",
+  "tools": []
+}

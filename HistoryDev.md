@@ -423,3 +423,22 @@
 - `backend/api.py` (`/miniapp/summary`) — параллельные запросы через `safe_gather`, `try/except` с логгером
 - `miniapp/app.js` — AI-сводка подгружается асинхронно после рендера дашборда, карточка вставляется без мерцания
 - **Результат:** дашборд ~500мс (было 5-15с), `/ask` не зависает, сводка в 5× быстрее
+
+## Сессия 48: OpenRouter integration + rule-based fallback (14.05.2026)
+- **Проблема:** OpenCode Zen API (`/zen/go/v1/chat/completions`) возвращал 500 для всех моделей — AI-агенты BTC Monitor полностью недоступны
+- **Диагностика:** `/zen/go/v1/models` работал, но `/chat/completions` — 500 Internal Server Error (известный баг Zen-прокси с парсингом токенов)
+- **Решение:** интеграция OpenRouter (free tier, 50 запр/день, без карты)
+- `btcbot/config.py` — добавлены `openrouter_api_key`, `openrouter_model`
+- `backend/agents.py` — новый `_ask_openrouter()`, `_get_openrouter_client()`, `OPENROUTER_MODEL_MAP`
+- `backend/agents.py` — `_ask_openrouter()` проверяет `msg.reasoning` как fallback (для reasoning-моделей)
+- Модель: `deepseek/deepseek-v4-flash:free` → `minimax/minimax-m2.5:free` (не reasoning, без rate-limit, `content` не `None`)
+- `bot/handlers/ask.py` — `_rule_based_analysis()` (цена, RSI, MA50/MA200, F&G, консенсус, волатильность) при недоступности AI
+- `backend/api.py` — `_fallback_analysis()` для Mini App `/miniapp/ask`
+- `.env.example` — добавлены `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`
+
+## Сессия 49: Локальные агенты OpenCode на Ollama (15.05.2026)
+- `opencode.json` — расширен с 4 до 8 моделей: `llama3.1:8b`, `deepseek-coder-v2:16b`, `qwen2.5:14b`, `deepseek-r1:14b`, `deepseek-r1:8b`, `deepseek-r1:32b`, `codellama:7b-instruct`, `deepcoder:14b`
+- 25 JSON-агентов из архива (`C:\Users\olego\Downloads\market-analyzer-bot-master\market-analyzer-bot-master\agents`) конвертированы в `.opencode/agents/*.md` с `ollama/<model>` — 6 перезаписаны (market-brain, rapid-dev, break-hunter, sigma-architect, prompt-master), 19 новых
+- `local-agent/` — копия исходных 25 JSON-агентов
+- `senior-dev.md` — переключён с `opencode-go/deepseek-v4-flash` на `ollama/deepseek-coder-v2:16b`
+- **Итог:** все 26 OpenCode агентов работают через локальный Ollama
