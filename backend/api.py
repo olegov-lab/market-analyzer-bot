@@ -742,7 +742,7 @@ async def miniapp_news_timothy(request: Request):
     try:
         client = _get_client()
         resp = await client.chat.completions.create(
-            model="deepseek-v4-pro",
+            model="glm-5.1",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt},
