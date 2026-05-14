@@ -207,8 +207,14 @@ class GameEngine:
         entries = await self.db.get_tournament_entries(tournament["id"])
         leaderboard = []
         user_rank = None
+        user_ids = [e["user_id"] for e in entries]
+        gu_map = {}
+        for uid in user_ids:
+            gu = await self.db.get_game_user(uid)
+            if gu:
+                gu_map[uid] = gu
         for i, e in enumerate(entries):
-            gu = await self.db.get_game_user(e["user_id"])
+            gu = gu_map.get(e["user_id"])
             pnl_delta = (gu["total_pnl"] - e["start_pnl"]) if gu else 0
             entry_data = {"rank": i + 1, "user_id": e["user_id"], "username": e["username"] or f"User {e['user_id']}",
                           "pnl_delta": round(pnl_delta, 2)}

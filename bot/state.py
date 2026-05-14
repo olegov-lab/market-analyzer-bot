@@ -29,7 +29,10 @@ HELP_KEYBOARD = {"btc": "📊 Аналитика", "ask": "🧠 AI Чат", "por
 
 
 def _ts() -> str:
-    return datetime.now(timezone.utc).strftime("🕐 %-d %B %Y, %H:%M UTC")
+    now = datetime.now(timezone.utc)
+    d = now.day
+    month = now.strftime("%B")
+    return f"🕐 {d} {month} {now.year}, {now.strftime('%H:%M UTC')}"
 
 
 def _rsi_bar(rsi: float) -> str:

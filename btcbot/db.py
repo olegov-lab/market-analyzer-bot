@@ -378,7 +378,7 @@ class Database:
             return
         async with self.pool.acquire() as conn:
             await conn.executemany(
-                "INSERT INTO onchain_metrics (time, metric_name, value, source) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING",
+                "INSERT INTO onchain_metrics (time, metric_name, value, source) VALUES ($1,$2,$3,$4)",
                 [(m.time, m.metric_name, m.value, m.source) for m in metrics],
             )
 

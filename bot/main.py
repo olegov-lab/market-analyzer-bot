@@ -12,19 +12,25 @@ from btcbot.news import build_market_brain_comment, fetch_news
 
 @dp.startup()
 async def on_startup():
+    print("[DEBUG] on_startup: connecting to DB...")
     await db.connect()
+    print("[DEBUG] on_startup: DB connected, setting menu button...")
 
     try:
+        print(f"[DEBUG] on_startup: miniapp_url={settings.miniapp_url}")
         await bot.set_chat_menu_button(
             menu_button=MenuButtonWebApp(
                 text="📊 BTC",
                 web_app=WebAppInfo(url=settings.miniapp_url),
             )
         )
+        print("[DEBUG] on_startup: menu button set OK")
     except Exception as e:
-        print(f"Failed to set menu button: {e}")
+        print(f"[DEBUG] on_startup: Failed to set menu button: {e}")
 
+    print("[DEBUG] on_startup: starting warmup_cache task...")
     asyncio.create_task(analyzer.warmup_cache())
+    print("[DEBUG] on_startup: done")
 
 
 @dp.shutdown()
@@ -152,9 +158,11 @@ async def _story_consumer():
 
 
 async def main():
+    print("[DEBUG] main: starting background tasks...")
     asyncio.create_task(_daily_news())
     asyncio.create_task(_proactive_consumer())
     asyncio.create_task(_story_consumer())
+    print("[DEBUG] main: starting polling...")
     await dp.start_polling(bot)
 
 

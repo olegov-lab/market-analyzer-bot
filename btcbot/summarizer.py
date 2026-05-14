@@ -64,14 +64,23 @@ async def summarize_indicators(
                 f"MACD: {indicators.macd:.1f} vs сигнал: {indicators.macd_signal:.1f}"
             )
         if indicators.rsi:
+            bb_lower = getattr(indicators, "bb_lower", None)
+            bb_middle = getattr(indicators, "bb_middle", None)
+            bb_upper = getattr(indicators, "bb_upper", None)
+            bb_lower_fmt = f"{bb_lower:,.0f}" if bb_lower else '—'
+            bb_middle_fmt = f"{bb_middle:,.0f}" if bb_middle else '—'
+            bb_upper_fmt = f"{bb_upper:,.0f}" if bb_upper else '—'
             groups["momentum"] = (
                 f"RSI(14): {indicators.rsi:.1f}\n"
-                f"BB: ${indicators.bb_lower:,.0f} / ${indicators.bb_middle:,.0f} / ${indicators.bb_upper:,.0f}\n"
-                f"Позиция в BB: {((price - indicators.bb_lower) / (indicators.bb_upper - indicators.bb_lower) * 100) if indicators.bb_upper and indicators.bb_lower else '—'}%"
+                f"BB: ${bb_lower_fmt} / ${bb_middle_fmt} / ${bb_upper_fmt}\n"
+                f"Позиция в BB: {((price - bb_lower) / (bb_upper - bb_lower) * 100) if bb_upper and bb_lower else '—'}%"
             )
         if indicators.bb_lower and getattr(indicators, "atr_pct", None):
+            bb_lower = getattr(indicators, "bb_lower", None)
+            bb_middle = getattr(indicators, "bb_middle", None)
+            bb_upper = getattr(indicators, "bb_upper", None)
             groups["volatility"] = (
-                f"BB ширина: {(indicators.bb_upper - indicators.bb_lower) / indicators.bb_middle * 100:.1f}%\n"
+                f"BB ширина: {(bb_upper - bb_lower) / bb_middle * 100:.1f}%\n"
                 f"ATR: {indicators.atr_pct:.1f}% от цены"
             )
         if onchain:

@@ -212,19 +212,17 @@ async def voice_ask(message: Message):
         if indicators and indicators.rsi is not None:
             ctx += f"RSI(14): {indicators.rsi:.1f} | MA50: ${indicators.ma_50:,.0f} | MA200: ${indicators.ma_200:,.0f}\n" if indicators.ma_50 and indicators.ma_200 else ""
         if fng:
-            ctx += f"Fear & Greed: {fng.value}/100 ({fng.classification})\n"
+            ctx += f"Fear & Greed: {fng['value']}/100 ({fng['classification']})\n"
 
         answer = await ask_agent("marketbrain", f"{ctx}\nUser asked via voice: {text}")
         parsed_text, chart_markers = _parse_chart_markers(answer)
         await status_msg.delete()
 
+        reply_markup = menu_kb
         if chart_markers:
-            reply_markup = _build_chart_keyboard(chart_markers)
-            for chunk in _split_long_message(parsed_text[:4000]):
-                await message.answer(chunk, parse_mode="HTML", reply_markup=reply_markup)
-        else:
-            for chunk in _split_long_message(parsed_text[:4000]):
-                await message.answer(chunk, parse_mode="HTML", reply_markup=menu_kb)
+            reply_markup = InlineKeyboardMarkup(inline_keyboard=[chart_markers])
+        text_to_send = parsed_text[:4000]
+        await message.answer(text_to_send, parse_mode="HTML", reply_markup=reply_markup)
     except Exception as e:
         logger.error("Voice handler error: {}", e)
         try:

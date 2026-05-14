@@ -231,7 +231,7 @@ async def miniapp_summary(request: Request):
     price = await db.get_latest_price("BTCUSD")
     indicators = await analyzer.compute_indicators()
     fng = await fear_greed.fetch()
-    onchain = await analyzer._get_onchain_df()
+    onchain = await analyzer._get_onchain_df(datetime.now(timezone.utc) - timedelta(days=30))
     onchain_dict = None
     if onchain is not None and not onchain.empty:
         onchain_dict = {

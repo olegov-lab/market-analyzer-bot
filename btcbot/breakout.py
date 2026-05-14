@@ -76,6 +76,9 @@ class ProactiveAlertEngine:
         await self.redis.set("btc:proactive:queue", json.dumps(events, ensure_ascii=False))
 
     async def _check_ma_cross(self) -> Optional[dict]:
+        trigger = "ma_cross"
+        if await self._is_cooldown(trigger):
+            return None
         ind = await self._read_indicators()
         if not ind or not ind.get("ma_50") or not ind.get("ma_200"):
             return None
@@ -90,13 +93,17 @@ class ProactiveAlertEngine:
         await self.redis.set("btc:ma_cross:state", new_state)
         if prev_state is None:
             return None
+        await self._set_cooldown(trigger, TRIGGERS[trigger])
         if new_state == "above":
             msg = f"🚨 MA50 пересекла MA200 снизу вверх (Golden Cross)\n💰 BTC: ${price:,.0f}\n📊 MA50: ${ind['ma_50']:,.0f} > MA200: ${ind['ma_200']:,.0f}"
         else:
             msg = f"🚨 MA50 пересекла MA200 сверху вниз (Death Cross)\n💰 BTC: ${price:,.0f}\n📊 MA50: ${ind['ma_50']:,.0f} < MA200: ${ind['ma_200']:,.0f}"
-        return {"trigger": "ma_cross", "message": msg}
+        return {"trigger": trigger, "message": msg}
 
     async def _check_bb_touch(self) -> Optional[dict]:
+        trigger = "bb_touch"
+        if await self._is_cooldown(trigger):
+            return None
         ind = await self._read_indicators()
         if not ind or not ind.get("bb_upper") or not ind.get("bb_lower"):
             return None
@@ -110,9 +117,13 @@ class ProactiveAlertEngine:
             msg = f"🚨 Цена у нижней полосы Боллинджера\n💰 BTC: ${price:,.0f}\n📊 BB: ${bbl:,.0f} / ${ind.get('bb_middle', 0):,.0f} / ${bbu:,.0f}\n⚠️ Возможен отскок"
         else:
             return None
-        return {"trigger": "bb_touch", "message": msg}
+        await self._set_cooldown(trigger, TRIGGERS[trigger])
+        return {"trigger": trigger, "message": msg}
 
     async def _check_rsi_extreme(self) -> Optional[dict]:
+        trigger = "rsi_extreme"
+        if await self._is_cooldown(trigger):
+            return None
         ind = await self._read_indicators()
         if not ind or ind.get("rsi") is None:
             return None
@@ -124,9 +135,13 @@ class ProactiveAlertEngine:
             msg = f"🚨 RSI в зоне перепроданности\n📊 RSI(14): {rsi:.1f} (<25)\n💰 BTC: ${price:,.0f}" if price else f"🚨 RSI в зоне перепроданности\n📊 RSI(14): {rsi:.1f} (<25)"
         else:
             return None
-        return {"trigger": "rsi_extreme", "message": msg}
+        await self._set_cooldown(trigger, TRIGGERS[trigger])
+        return {"trigger": trigger, "message": msg}
 
     async def _check_mvrv_zone(self) -> Optional[dict]:
+        trigger = "mvrv_zone"
+        if await self._is_cooldown(trigger):
+            return None
         try:
             rows = await self.db.get_onchain_metric_since(
                 "mvrv_z_score",
@@ -136,18 +151,20 @@ class ProactiveAlertEngine:
                 return None
             mvrv = float(rows[-1]["value"])
             if mvrv >= 5:
-                level = "экстремально переоценён"
                 msg = f"🚨 MVRV Z-Score: {mvrv:.2f} — рынок экстремально переоценён\n⚠️ Исторически — зона коррекции"
             elif mvrv <= 0.3:
-                level = "экстремально недооценён"
                 msg = f"🚨 MVRV Z-Score: {mvrv:.2f} — рынок экстремально недооценён\n🟢 Исторически — зона накопления"
             else:
                 return None
-            return {"trigger": "mvrv_zone", "message": msg}
+            await self._set_cooldown(trigger, TRIGGERS[trigger])
+            return {"trigger": trigger, "message": msg}
         except Exception:
             return None
 
     async def _check_fg_extreme(self) -> Optional[dict]:
+        trigger = "fg_extreme"
+        if await self._is_cooldown(trigger):
+            return None
         raw = await self.redis.get("fear_greed")
         if not raw:
             return None
@@ -159,9 +176,13 @@ class ProactiveAlertEngine:
             msg = f"🚨 Fear & Greed: {val}/100 — экстремальная жадность\n🔴 Исторически — сигнал осторожности"
         else:
             return None
-        return {"trigger": "fg_extreme", "message": msg}
+        await self._set_cooldown(trigger, TRIGGERS[trigger])
+        return {"trigger": trigger, "message": msg}
 
     async def _check_vol_spike(self) -> Optional[dict]:
+        trigger = "vol_spike"
+        if await self._is_cooldown(trigger):
+            return None
         avg_raw = await self.redis.get("btc:volume:avg")
         cur_raw = await self.redis.get("btc:volume:current")
         if not avg_raw or not cur_raw:
@@ -172,9 +193,13 @@ class ProactiveAlertEngine:
             return None
         price = await self._read_price()
         msg = f"🚨 Всплеск объёма — {cur / avg:.1f}x среднего\n💰 BTC: ${price:,.0f}" if price else f"🚨 Всплеск объёма — {cur / avg:.1f}x среднего"
-        return {"trigger": "vol_spike", "message": msg}
+        await self._set_cooldown(trigger, TRIGGERS[trigger])
+        return {"trigger": trigger, "message": msg}
 
     async def _check_funding_spike(self) -> Optional[dict]:
+        trigger = "funding_spike"
+        if await self._is_cooldown(trigger):
+            return None
         try:
             rows = await self.db.get_onchain_metric_since(
                 "funding_rate",
@@ -189,6 +214,7 @@ class ProactiveAlertEngine:
                 msg = f"🚨 Funding Rate: {fr * 100:.2f}% — перегрев шортов\n⚠️ Возможен short squeeze"
             else:
                 return None
-            return {"trigger": "funding_spike", "message": msg}
+            await self._set_cooldown(trigger, TRIGGERS[trigger])
+            return {"trigger": trigger, "message": msg}
         except Exception:
             return None
