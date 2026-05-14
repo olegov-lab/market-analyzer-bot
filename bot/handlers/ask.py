@@ -1,4 +1,5 @@
 import io
+import json
 import time
 
 from aiogram import F
@@ -90,28 +91,23 @@ async def ask(message: Message):
         reply_markup=menu_kb,
     )
 
-    price, indicators, fng, pred = await safe_gather(
-        db.get_latest_price("BTCUSD"),
-        analyzer.compute_indicators(),
-        fear_greed.fetch(),
-        analyzer.predict(),
-        log_prefix="ask",
-    )
-
     ctx_parts = [f"Сегодня {_ts()}"]
+    price = await db.get_latest_price("BTCUSD")
     if price:
         ctx_parts.append(f"Цена BTC: ${price:,.0f}")
-    if indicators:
-        if indicators.rsi is not None:
-            ctx_parts.append(f"RSI(14): {indicators.rsi:.1f}")
-        if indicators.ma_50 is not None:
-            ctx_parts.append(f"MA50: ${indicators.ma_50:,.0f}")
-        if indicators.ma_200 is not None:
-            ctx_parts.append(f"MA200: ${indicators.ma_200:,.0f}")
-    if fng:
-        ctx_parts.append(f"Fear & Greed: {fng['value']}/100 ({fng['classification']})")
-    if pred:
-        ctx_parts.append(f"Сигнал: {pred.direction} (уверенность {pred.confidence:.0%})")
+    if redis_client:
+        try:
+            cached_ind = await redis_client.get("indicators:BTCUSD")
+            if cached_ind:
+                ind = json.loads(cached_ind)
+                if ind.get("rsi") is not None:
+                    ctx_parts.append(f"RSI(14): {ind['rsi']:.1f}")
+                if ind.get("ma_50") is not None:
+                    ctx_parts.append(f"MA50: ${ind['ma_50']:,.0f}")
+                if ind.get("ma_200") is not None:
+                    ctx_parts.append(f"MA200: ${ind['ma_200']:,.0f}")
+        except Exception:
+            pass
     ctx = " | ".join(ctx_parts)
 
     import asyncio as _asyncio
@@ -122,7 +118,7 @@ async def ask(message: Message):
                 f"Контекст рынка: {ctx}\n\nВопрос пользователя: {question}\n\nОтветь на русском языке, используя контекст если нужно.",
                 temperature=0.7,
             ),
-            timeout=25.0,
+            timeout=40.0,
         )
     except Exception:
         response = None
