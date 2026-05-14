@@ -509,7 +509,7 @@ async def _fetch_timothy_analysis(price: Optional[float], indicators) -> str:
     )
     client = _get_client()
     resp = await client.chat.completions.create(
-        model="deepseek-v4-pro",
+        model="glm-5.1",
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
@@ -529,11 +529,20 @@ async def _warmup_timothy_cache():
     if redis_client and await redis_client.exists(cache_key):
         return
     try:
-        price, indicators = await safe_gather(
-            db.get_latest_price("BTCUSD"),
-            analyzer.compute_indicators(),
-            log_prefix="timothy_warmup",
-        )
+        price = await db.get_latest_price("BTCUSD")
+        indicators = None
+        if redis_client:
+            try:
+                cached_ind = await redis_client.get("indicators:BTCUSD")
+                if cached_ind:
+                    ind_data = json.loads(cached_ind)
+                    indicators = type('Ind', (), {
+                        'rsi': ind_data.get('rsi'),
+                        'ma_50': ind_data.get('ma_50'),
+                        'ma_200': ind_data.get('ma_200'),
+                    })()
+            except Exception:
+                pass
         text = await _fetch_timothy_analysis(price, indicators)
         result = {"text": text, "source": "Timothy Peterson via AI"}
         if redis_client:
@@ -699,14 +708,20 @@ async def miniapp_news_timothy(request: Request):
         "Do NOT invent prices or dates — reference only what is given."
     )
     # Fetch current market context for accurate analysis
-    price = indicators = None
-    try:
-        price, indicators = await safe_gather(
-            db.get_latest_price("BTCUSD"),
-            analyzer.compute_indicators(),
-        )
-    except Exception:
-        pass
+    price = await db.get_latest_price("BTCUSD")
+    indicators = None
+    if redis_client:
+        try:
+            cached_ind = await redis_client.get("indicators:BTCUSD")
+            if cached_ind:
+                ind_data = json.loads(cached_ind)
+                indicators = type('Ind', (), {
+                    'rsi': ind_data.get('rsi'),
+                    'ma_50': ind_data.get('ma_50'),
+                    'ma_200': ind_data.get('ma_200'),
+                })()
+        except Exception:
+            pass
 
     ctx_parts = []
     if price:
