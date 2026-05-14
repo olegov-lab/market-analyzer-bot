@@ -74,5 +74,17 @@ async def generate_daily_story(db: Any, redis_client: Any, analyzer: Any) -> str
     except Exception as e:
         logger.warning(f"Daily story generation failed: {e}")
 
-    fallback = f"📈 *BTC Monitor* · {datetime.now(timezone.utc).strftime('%d %B %Y')}\n\nРынок Bitcoin сегодня. Цена: ${price:,.0f}."
+    parts = [f"📈 *BTC Monitor* · {datetime.now(timezone.utc).strftime('%d %B %Y')}"]
+    if price:
+        parts.append(f"\nЦена BTC: ${price:,.0f}")
+    if fng:
+        parts.append(f"Fear & Greed: {fng['value']}/100 ({fng['classification']})")
+    if indicators:
+        if indicators.rsi is not None:
+            parts.append(f"RSI: {indicators.rsi:.1f}")
+        if indicators.ma_50 and indicators.ma_200:
+            trend = "выше" if price and price > indicators.ma_200 else "ниже"
+            parts.append(f"Тренд: цена {trend} MA200")
+    parts.append("\nИИ-аналитика временно недоступна. Попробуйте позже через /story.")
+    fallback = "\n".join(parts)
     return fallback

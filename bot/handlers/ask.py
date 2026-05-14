@@ -114,11 +114,15 @@ async def ask(message: Message):
         ctx_parts.append(f"Сигнал: {pred.direction} (уверенность {pred.confidence:.0%})")
     ctx = " | ".join(ctx_parts)
 
+    import asyncio as _asyncio
     try:
-        response = await ask_agent(
-            "marketbrain",
-            f"Контекст рынка: {ctx}\n\nВопрос пользователя: {question}\n\nОтветь на русском языке, используя контекст если нужно.",
-            temperature=0.7,
+        response = await _asyncio.wait_for(
+            ask_agent(
+                "marketbrain",
+                f"Контекст рынка: {ctx}\n\nВопрос пользователя: {question}\n\nОтветь на русском языке, используя контекст если нужно.",
+                temperature=0.7,
+            ),
+            timeout=25.0,
         )
     except Exception:
         response = None

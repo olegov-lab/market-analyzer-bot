@@ -389,3 +389,37 @@
 - **P2:** `db.py` — `ALTER TABLE game_users ADD stars` (миграция на лету)
 - **Баги:** 2 бота с одним токеном (старый сервер) → конфликт getUpdates → смена токена через @BotFather
 - Системный тунель `cloudflared-tunnel.service` с автообновлением MINIAPP_URL при смене URL
+
+## Сессия 45: Критический инцидент — бот не отвечает (14.05.2026)
+- **Симптомы:** бот не отвечает, кнопка `📊 BTC` пропала, вкладка «Цена» не грузит данные
+- **Причина 1 — Токен:** Telegram API → 401 Unauthorized. Токен в `.env` был старый (сменён через @BotFather в Сессии 44)
+- **Причина 2 — `.env` без MINIAPP_URL:** SCP локального `.env` (3 переменные) перезаписал серверный `.env` (без `MINIAPP_URL`, `POSTGRES_PASSWORD` и др.) → Mini App не работал
+- **Причина 3 — Cloudflared wrapper зациклился:** `cloudflared-wrapper.sh` ловил все строки с `trycloudflare.com` (включая ошибки туннеля) и бесконечно перезапускал бота каждые ~15с
+- **Причина 4 — Postgres password mismatch:** БД инициализировалась с паролем из предыдущего `.env`, после перезаписи — пароль не совпадал. Сброшен через `psql -U postgres` (trust auth на Unix-сокете)
+- **Причина 5 — `.pyc` кеш:** `docker compose restart` не перечитывает изменённые `.py` файлы при volume mount → `up -d --force-recreate`
+- **Фиксы:**
+  - `cloudflared-wrapper.sh` — добавлен `LAST_URL` dedup (пропускает повторные срабатывания на тот же URL), поддержка добавления `MINIAPP_URL=` если строка отсутствует
+  - Кнопка меню установлена через Telegram API + бот при старте: `📊 BTC` → `https://begin-english-guild-checked.trycloudflare.com/miniapp`
+  - Отладка `bot/main.py` — `[DEBUG]` print'ы в `on_startup` и `main()` для трассировки старта
+
+## Сессия 46: Перезапуск проекта + OpenCode агенты (14.05.2026)
+- **Проблема:** проект не запускался — 0 контейнеров на сервере
+- **P0:** `docker-compose.yml` — postgres/redis без `restart: unless-stopped` → при падении не перезапускались
+- **P0:** Docker bridge DNS не резолвил `deb.debian.org` → сборка падала → добавлены `8.8.8.8`, `1.1.1.1` в `daemon.json`
+- **P0:** Postgres password mismatch — старый volume имел пароль из предыдущего `.env`, scram-sha-256 не пускал. Сброшен через Unix-сокет `psql -U postgres`
+- **Результат:** все 6 контейнеров запущены: postgres (healthy), redis (healthy), collector (Binance WS + Bitview on-chain), scheduler, API (`:8000`), bot (menu button OK, warmup cache OK)
+- **Cloudflare:** туннель активен, `https://begin-english-guild-checked.trycloudflare.com/miniapp` → 200
+- **Документация:** `agents01.md` — добавлен Senior-Dev (DeepSeek V4 Flash), обновлены счётчики и таблицы
+- **OpenCode агенты:** созданы `.opencode/agents/` — 6 под-агентов (sigma-architect, rapid-dev, break-hunter, market-brain, senior-dev, prompt-master) для вызова через Task
+- **Commit:** `14f4404` — `fix: add restart: unless-stopped to postgres/redis, add Senior-Dev agent`
+
+## Сессия 47: Оптимизация AI-агентов + асинхронная сводка (14.05.2026)
+- **Проблема:** `/ask`, `/miniapp/dashboard`, `daily_story` — таймауты и долгая загрузка из-за AI-вызовов
+- `btcbot/summarizer.py` — 5 последовательных `ask_agent()` → `asyncio.gather()` (параллельно), кеш 5→30 мин
+- `backend/agents.py` — `timeout=120→30s`, `max_retries=1→0`
+- `btcbot/daily_story.py` — расширенный fallback (цена, F&G, RSI, тренд) при недоступности AI
+- `bot/handlers/ask.py` — `asyncio.wait_for(ask_agent(), timeout=25s)` — гарантия независания бота
+- `backend/api.py` (`/miniapp/dashboard`) — убран блокирующий вызов `summarize_indicators()`, сводка только из кеша или `null`
+- `backend/api.py` (`/miniapp/summary`) — параллельные запросы через `safe_gather`, `try/except` с логгером
+- `miniapp/app.js` — AI-сводка подгружается асинхронно после рендера дашборда, карточка вставляется без мерцания
+- **Результат:** дашборд ~500мс (было 5-15с), `/ask` не зависает, сводка в 5× быстрее

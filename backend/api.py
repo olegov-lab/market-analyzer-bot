@@ -155,16 +155,23 @@ async def subscribe(request: Request):
 
 # ─── Mini App Endpoints ──────────────────────────────────────────────
 
+async def _fast_or_none(coro, timeout=2.0):
+    try:
+        return await asyncio.wait_for(coro, timeout=timeout)
+    except (asyncio.TimeoutError, Exception):
+        return None
+
+
 @app.get("/miniapp/dashboard")
 @limiter.limit("30/minute")
 async def miniapp_dashboard(request: Request):
     user_id = await _get_user_id(request)
     price, indicators, pred, fng, vol = await safe_gather(
         db.get_latest_price("BTCUSD"),
-        analyzer.compute_indicators(),
-        analyzer.predict(),
-        fear_greed.fetch(),
-        analyzer.compute_volatility(),
+        _fast_or_none(analyzer.compute_indicators(), 2.0),
+        _fast_or_none(analyzer.predict(), 2.0),
+        _fast_or_none(fear_greed.fetch(), 1.5),
+        _fast_or_none(analyzer.compute_volatility(), 2.0),
         log_prefix="dashboard",
     )
     prediction_summary = None
@@ -176,24 +183,15 @@ async def miniapp_dashboard(request: Request):
             "price_max": pred.price_max,
         }
     vol_data = vol.model_dump() if vol else None
-    consensus = await analyzer.compute_consensus()
+    consensus = await _fast_or_none(analyzer.compute_consensus(), 2.0)
     summary = None
-    try:
-        from btcbot.summarizer import summarize_indicators
-        onchain_dict = None
+    if redis_client:
         try:
-            onchain = await analyzer._get_onchain_df(datetime.now(timezone.utc) - timedelta(days=30))
-            if onchain is not None and not onchain.empty:
-                onchain_dict = {}
-                for col in ("mvrv_z", "sopr", "nupl"):
-                    if col in onchain.columns:
-                        v = onchain.iloc[-1].get(col)
-                        onchain_dict[col] = round(float(v), 2) if v is not None and v == v else None
+            cached = await redis_client.get("summary:indicators")
+            if cached:
+                summary = json.loads(cached)
         except Exception:
             pass
-        summary = await summarize_indicators(db, redis_client, price, indicators, fng, onchain_dict)
-    except Exception as e:
-        logger.warning("Dashboard summary failed: {}", e)
     return {
         "price": price,
         "indicators": indicators.model_dump() if indicators else None,
@@ -227,19 +225,26 @@ async def miniapp_consensus(request: Request):
 @limiter.limit("10/minute")
 async def miniapp_summary(request: Request):
     user_id = await _get_user_id(request)
-    from btcbot.summarizer import summarize_indicators
-    price = await db.get_latest_price("BTCUSD")
-    indicators = await analyzer.compute_indicators()
-    fng = await fear_greed.fetch()
-    onchain = await analyzer._get_onchain_df(datetime.now(timezone.utc) - timedelta(days=30))
-    onchain_dict = None
-    if onchain is not None and not onchain.empty:
-        onchain_dict = {
-            "mvrv_z": round(float(onchain.iloc[-1].get("mvrv_z", 0)), 2) if "mvrv_z" in onchain.columns else None,
-            "sopr": round(float(onchain.iloc[-1].get("sopr", 0)), 2) if "sopr" in onchain.columns else None,
-            "nupl": round(float(onchain.iloc[-1].get("nupl", 0)), 2) if "nupl" in onchain.columns else None,
-        }
-    return await summarize_indicators(db, redis_client, price, indicators, fng, onchain_dict)
+    try:
+        from btcbot.summarizer import summarize_indicators
+        price, indicators, fng = await safe_gather(
+            db.get_latest_price("BTCUSD"),
+            analyzer.compute_indicators(),
+            fear_greed.fetch(),
+            log_prefix="summary",
+        )
+        onchain = await analyzer._get_onchain_df(datetime.now(timezone.utc) - timedelta(days=30))
+        onchain_dict = None
+        if onchain is not None and not onchain.empty:
+            onchain_dict = {}
+            for col in ("mvrv_z", "sopr", "nupl"):
+                if col in onchain.columns:
+                    v = onchain.iloc[-1].get(col)
+                    onchain_dict[col] = round(float(v), 2) if v is not None and v == v else None
+        return await summarize_indicators(db, redis_client, price, indicators, fng, onchain_dict)
+    except Exception as e:
+        logger.warning("miniapp_summary failed: {}", e)
+        raise HTTPException(503, "Summary unavailable")
 
 
 @app.get("/miniapp/predict")

@@ -96,17 +96,28 @@ async def summarize_indicators(
                 f"Funding Rate: {getattr(indicators, 'funding_rate', None) if indicators else None or '—'}"
             )
 
-        for group_name, data in groups.items():
+        import asyncio
+
+        async def _summarize_group(group_name: str, data: str) -> tuple[str, str]:
             try:
                 prompt = _SUMMARY_PROMPT + f"\n\nГруппа: {group_name.upper()}\nДанные:\n{data}\n\nСгенерируй сводку ТОЛЬКО для этой группы:"
                 response = await ask_agent("marketbrain", prompt, temperature=0.35)
                 if response and "[Agent error" not in response:
-                    result[group_name] = response.strip()
+                    return group_name, response.strip()
             except Exception:
                 pass
+            return group_name, ""
+
+        tasks = [_summarize_group(name, data) for name, data in groups.items()]
+        gathered = await asyncio.gather(*tasks, return_exceptions=True)
+        for item in gathered:
+            if isinstance(item, tuple):
+                group_name, text = item
+                if text:
+                    result[group_name] = text
 
         import json
-        await redis_client.setex(cache_key, 300, json.dumps(result, ensure_ascii=False))
+        await redis_client.setex(cache_key, 1800, json.dumps(result, ensure_ascii=False))
     except Exception as e:
         logger.warning("summarize_indicators failed: {}", e)
 

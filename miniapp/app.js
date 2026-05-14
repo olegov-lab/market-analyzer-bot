@@ -252,17 +252,6 @@ async function renderDashboard() {
       html += '<div class="card"><div class="card-title">Консенсус индикаторов</div><div class="conf-bar"><div class="conf-bar-fill" style="width:' + cp + '%;background:linear-gradient(90deg,#00c853,' + (cp >= 50 ? '#ffc107' : '#ff1744') + ')"></div></div><div class="row"><span class="label">' + cp + '% за рост</span><span class="value">' + sigLabel + '</span></div></div>';
     }
 
-    if (data.summary && Object.values(data.summary).some(function(s) { return s; })) {
-      const labels = { trend: 'Тренд', momentum: 'Моментум', volatility: 'Волатильность', onchain: 'On-chain', sentiment: 'Сентимент' };
-      html += '<div class="card"><div class="card-title">🧠 AI Сводка</div>';
-      for (var key in data.summary) {
-        if (data.summary[key]) {
-          html += '<div style="margin-bottom:10px;"><div style="font-size:11px;font-weight:600;color:var(--btn);margin-bottom:2px;">' + (labels[key] || key) + '</div><div style="font-size:12px;color:var(--text);line-height:1.55;">' + escapeHtml(data.summary[key]) + '</div></div>';
-        }
-      }
-      html += '</div>';
-    }
-
     if (ind) {
       html += '<div class="card"><div class="card-title">Технические индикаторы</div>';
       if (ind.rsi != null) {
@@ -327,6 +316,38 @@ async function renderDashboard() {
     }).catch(function(){});
 
     renderSub(html);
+
+    // Async AI summary — loads after dashboard renders, does not block UI
+    apiCall('/miniapp/summary').then(function(summary) {
+      if (!summary || !Object.values(summary).some(function(s) { return s; })) return;
+      var subContent = document.getElementById('sub-content');
+      if (!subContent) return;
+      var labels = { trend: 'Тренд', momentum: 'Моментум', volatility: 'Волатильность', onchain: 'On-chain', sentiment: 'Сентимент' };
+      var summaryHtml = '<div class="card" id="ai-summary-card"><div class="card-title">🧠 AI Сводка</div>';
+      for (var key in summary) {
+        if (summary[key]) {
+          summaryHtml += '<div style="margin-bottom:10px;"><div style="font-size:11px;font-weight:600;color:var(--btn);margin-bottom:2px;">' + (labels[key] || key) + '</div><div style="font-size:12px;color:var(--text);line-height:1.55;">' + escapeHtml(summary[key]) + '</div></div>';
+        }
+      }
+      summaryHtml += '</div>';
+      // Insert after consensus card, or after hero block
+      var cards = subContent.querySelectorAll('.card');
+      var insertAfter = null;
+      for (var i = 0; i < cards.length; i++) {
+        var title = cards[i].querySelector('.card-title');
+        if (title && title.textContent.indexOf('Консенсус') !== -1) {
+          insertAfter = cards[i];
+          break;
+        }
+      }
+      if (!insertAfter) {
+        var hero = subContent.querySelector('.hero');
+        if (hero) insertAfter = hero;
+      }
+      if (insertAfter) {
+        insertAfter.insertAdjacentHTML('afterend', summaryHtml);
+      }
+    }).catch(function(){});
   } catch (e) {
     renderSub('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + escapeHtml(e.message) + '</div></div>');
   }
