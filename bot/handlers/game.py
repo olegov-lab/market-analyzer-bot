@@ -10,6 +10,122 @@ from bot.state import db, dp, redis_client, menu_kb
 game = GameEngine(db)
 
 
+def _stars_bar(stars: int) -> str:
+    filled = min(stars, 10)
+    return "⭐" * filled + "☆" * (10 - filled)
+
+
+@dp.message(Command(commands=["mine"]))
+async def mine_cmd(message: Message):
+    uid = message.from_user.id
+    await db.upsert_user(uid, message.from_user.username)
+    try:
+        result = await game.mine_click(uid, redis_client)
+        await message.answer(
+            f"⛏ <b>Майнинг</b>\n\n"
+            f"▸ Добыто: +{result['earned']} сатоши\n"
+            f"▸ Всего: {result['total_sats']} сатоши\n"
+            f"▸ Стрек: {result['streak']} дней (x{result['streak_mult']})\n"
+            f"▸ Бонус рефералов: x{result['ref_mult']}\n"
+            f"▸ ⭐: {result['stars']}",
+            parse_mode="HTML",
+            reply_markup=menu_kb,
+        )
+    except ValueError as e:
+        await message.answer(f"⛏ {e}", reply_markup=menu_kb)
+
+
+@dp.message(Command(commands=["roulette"]))
+async def roulette_cmd(message: Message):
+    uid = message.from_user.id
+    await db.upsert_user(uid, message.from_user.username)
+    parts = message.text.split()
+    bet = int(parts[1]) if len(parts) > 1 else 1
+    try:
+        result = await game.roulette_spin(uid, bet, redis_client)
+        if result["won"]:
+            await message.answer(
+                f"{result['emoji']} <b>Рулетка</b>\n\n"
+                f"▸ Ставка: {result['bet']} ⭐\n"
+                f"▸ Множитель: x{result['multiplier']}\n"
+                f"▸ Выигрыш: +{result['win']} ⭐\n"
+                f"▸ Чистый: +{result['net']} ⭐",
+                parse_mode="HTML",
+                reply_markup=menu_kb,
+            )
+        else:
+            await message.answer(
+                f"{result['emoji']} <b>Рулетка</b>\n\n"
+                f"▸ Ставка: {result['bet']} ⭐\n"
+                f"▸ Множитель: x{result['multiplier']}\n"
+                f"▸ Проигрыш: -{result['bet']} ⭐",
+                parse_mode="HTML",
+                reply_markup=menu_kb,
+            )
+    except ValueError as e:
+        await message.answer(f"🎰 {e}", reply_markup=menu_kb)
+
+
+@dp.message(Command(commands=["guess"]))
+async def guess_cmd(message: Message):
+    uid = message.from_user.id
+    await db.upsert_user(uid, message.from_user.username)
+    parts = message.text.split()
+    if len(parts) < 2:
+        state = await game.get_guess_state(uid)
+        if state["today_guess"]:
+            await message.answer(
+                f"🎯 <b>Цена дня</b>\n\n"
+                f"▸ Ваша догадка: ${state['today_guess']['guess_price']:,.0f}\n"
+                f"▸ Текущая BTC: ${state['btc_price']:,.0f}\n"
+                f"▸ ⭐: {_stars_bar(state['stars'])}\n\n"
+                f"Завтра в 00:00 UTC — результат.",
+                parse_mode="HTML",
+                reply_markup=menu_kb,
+            )
+        else:
+            await message.answer(
+                f"🎯 <b>Цена дня</b>\n\n"
+                f"Угадай цену BTC завтра в 00:00 UTC!\n\n"
+                f"▸ /guess <цена> — сделать догадку\n"
+                f"▸ Погрешность < 1% → +5 ⭐\n"
+                f"▸ Погрешность < 3% → +2 ⭐\n"
+                f"▸ Текущая BTC: ${state['btc_price']:,.0f}",
+                parse_mode="HTML",
+                reply_markup=menu_kb,
+            )
+        return
+    try:
+        guess_price = float(parts[1])
+        result = await game.submit_guess(uid, guess_price)
+        await message.answer(
+            f"🎯 <b>Цена дня</b>\n\n"
+            f"▸ Ваша догадка: ${result['guess_price']:,.0f}\n"
+            f"▸ BTC сейчас: ${result['btc_price']:,.0f}\n"
+            f"▸ Дата: {result['guess_date']}\n\n"
+            f"Ждём результатов в 00:00 UTC! 🤞",
+            parse_mode="HTML",
+            reply_markup=menu_kb,
+        )
+    except ValueError as e:
+        await message.answer(f"🎯 {e}", reply_markup=menu_kb)
+
+
+@dp.message(Command(commands=["achievements"]))
+async def achievements_cmd(message: Message):
+    uid = message.from_user.id
+    await db.upsert_user(uid, message.from_user.username)
+    state = await game.get_achievements_state(uid)
+    parts = [f"🏆 <b>Достижения</b> ({state['unlocked']}/{state['total']})", ""]
+    for a in state["list"]:
+        icon = a["icon"] if a["unlocked"] else "🔒"
+        name = a["name"] if a["unlocked"] else f"??? ({a['category']})"
+        parts.append(f"{icon} {name} — {a['description']}")
+    if not state["list"]:
+        parts.append("Пока нет достижений. Торгуйте, майните и угадывайте цену!")
+    await message.answer("\n".join(parts), parse_mode="HTML", reply_markup=menu_kb)
+
+
 async def _check_trade_limit(user_id: int, msg_func) -> bool:
     return True
 
