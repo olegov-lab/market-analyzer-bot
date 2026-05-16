@@ -1,3 +1,6 @@
+import json
+import random
+from datetime import datetime, timezone
 from typing import Optional
 
 from btcbot.db import Database
@@ -271,4 +274,271 @@ class GameEngine:
             "win_rate": win_rate,
             "stars": user["stars"] or 0,
             "recent_trades": recent,
+        }
+
+    # ─── Price Guess ──────────────────────────────────────────────────
+
+    async def submit_guess(self, user_id: int, guess_price: float) -> dict:
+        if guess_price <= 0:
+            raise ValueError("Цена должна быть положительной")
+        current_price = await self.db.get_latest_price("BTCUSD")
+        if not current_price:
+            raise ValueError("Цена BTC временно недоступна")
+        result = await self.db.submit_price_guess(user_id, guess_price)
+        return {"guess_price": result["guess_price"], "guess_date": result["guess_date"], "btc_price": current_price}
+
+    async def get_guess_state(self, user_id: int) -> dict:
+        today = await self.db.get_user_guess_today(user_id)
+        current_price = await self.db.get_latest_price("BTCUSD")
+        history = await self.db.get_guess_history(user_id, 10)
+        user = await self.db.get_or_create_game_user(user_id)
+        return {
+            "today_guess": {"guess_price": today["guess_price"]} if today else None,
+            "btc_price": current_price,
+            "stars": user.get("stars", 0),
+            "history": [
+                {"date": str(h["guess_date"]), "guess_price": h["guess_price"],
+                 "btc_price": h["btc_price_at_resolution"], "deviation_pct": h["deviation_pct"],
+                 "won": h["won"], "stars_won": h["stars_won"]}
+                for h in history
+            ],
+        }
+
+    # ─── Achievements ─────────────────────────────────────────────────
+
+    async def check_and_unlock(self, user_id: int, slug: str) -> Optional[dict]:
+        return await self.db.unlock_achievement(user_id, slug)
+
+    async def get_achievements_state(self, user_id: int) -> dict:
+        achievements = await self.db.get_user_achievements(user_id)
+        unlocked = sum(1 for a in achievements if a["unlocked_at"])
+        return {
+            "total": len(achievements),
+            "unlocked": unlocked,
+            "list": [
+                {"slug": a["slug"], "name": a["name"], "icon": a["icon"],
+                 "category": a["category"], "description": a["description"],
+                 "unlocked": a["unlocked_at"] is not None,
+                 "unlocked_at": a["unlocked_at"].isoformat() if a["unlocked_at"] else None}
+                for a in achievements
+            ],
+        }
+
+    async def check_trade_achievements(self, user_id: int) -> list[dict]:
+        user = await self.db.get_or_create_game_user(user_id)
+        new = []
+        total = user["total_trades"] or 0
+        pnl = user["total_pnl"] or 0
+        win_rate = (user["winning_trades"] / total * 100) if total > 0 else 0
+
+        checks = [
+            ("first_trade", total >= 1),
+            ("ten_trades", total >= 10),
+            ("fifty_trades", total >= 50),
+            ("profit_100", pnl >= 100),
+            ("profit_1000", pnl >= 1000),
+            ("profit_10000", pnl >= 10000),
+        ]
+        for slug, condition in checks:
+            if condition:
+                r = await self.check_and_unlock(user_id, slug)
+                if r:
+                    new.append(r)
+
+        # Win streak check
+        if total >= 3 and win_rate >= 80:
+            r = await self.check_and_unlock(user_id, "win_streak_3")
+            if r:
+                new.append(r)
+
+        # League check
+        league_info = self.compute_league(pnl)
+        if league_info["league"] == "platinum":
+            r = await self.check_and_unlock(user_id, "platinum_league")
+            if r:
+                new.append(r)
+
+        return new
+
+    async def check_guess_achievements(self, user_id: int, won: bool) -> list[dict]:
+        new = []
+        if won:
+            r = await self.check_and_unlock(user_id, "guess_winner")
+            if r:
+                new.append(r)
+        # Check streak
+        history = await self.db.get_guess_history(user_id, 5)
+        if len(history) >= 3:
+            r = await self.check_and_unlock(user_id, "guess_3_streak")
+            if r:
+                new.append(r)
+        return new
+
+    async def check_mining_achievements(self, user_id: int, total_sats: int) -> list[dict]:
+        new = []
+        checks = [
+            ("mining_1000", total_sats >= 1000),
+            ("mining_10000", total_sats >= 10000),
+        ]
+        for slug, condition in checks:
+            if condition:
+                r = await self.check_and_unlock(user_id, slug)
+                if r:
+                    new.append(r)
+        return new
+
+    async def check_referral_achievements(self, user_id: int) -> list[dict]:
+        stats = await self.db.get_referral_stats(user_id)
+        new = []
+        checks = [
+            ("referral_3", stats["count"] >= 3),
+            ("referral_10", stats["count"] >= 10),
+        ]
+        for slug, condition in checks:
+            if condition:
+                r = await self.check_and_unlock(user_id, slug)
+                if r:
+                    new.append(r)
+        return new
+
+    # ─── Mining (Tap-to-Earn) ────────────────────────────────────────
+
+    async def mine_click(self, user_id: int, redis) -> dict:
+        key = f"mining:{user_id}"
+        now = datetime.now(timezone.utc)
+        data = await redis.get(key)
+        state = json.loads(data) if data else {"earned": 0, "last_click": None, "streak": 0}
+
+        last = state.get("last_click")
+        streak = state.get("streak", 0)
+
+        if last:
+            last_dt = datetime.fromisoformat(last)
+            hours_since = (now - last_dt).total_seconds() / 3600
+            if hours_since < 1:
+                raise ValueError("Копать можно раз в час! Возвращайтесь через {:.0f} мин.".format(60 - (now - last_dt).total_seconds() / 60))
+            if hours_since > 24:
+                streak = 0
+            else:
+                streak += 1
+        else:
+            streak = 1
+
+        base_sats = random.randint(3, 8)
+        streak_mult = min(2.0, 1 + streak * 0.05)
+        refs = await self.db.get_referral_stats(user_id)
+        ref_mult = 1 + min(1.0, refs["count"] * 0.1)
+        earned = round(base_sats * streak_mult * ref_mult, 0)
+
+        state["earned"] += earned
+        state["last_click"] = now.isoformat()
+        state["streak"] = streak
+
+        await redis.set(key, json.dumps(state, ensure_ascii=False))
+
+        # Convert sats to Stars (1000 sats = 1 star)
+        sats_to_stars = int(state["earned"] // 1000)
+        total_stars = int(sats_to_stars)
+
+        return {
+            "earned": int(earned),
+            "total_sats": int(state["earned"]),
+            "streak": streak,
+            "streak_mult": round(streak_mult, 2),
+            "ref_mult": round(ref_mult, 2),
+            "stars": total_stars,
+        }
+
+    async def roulette_spin(self, user_id: int, bet: int, redis) -> dict:
+        if bet < 1 or bet > 10:
+            raise ValueError("Ставка от 1 до 10 ⭐")
+        if not isinstance(bet, int):
+            raise ValueError("Ставка должна быть целым числом")
+
+        # Cooldown: 1 spin per 3 seconds
+        cooldown_key = f"roulette:cd:{user_id}"
+        if await redis.get(cooldown_key):
+            raise ValueError("Крутить можно раз в 3 секунды")
+
+        # Check balance
+        user = await self.db.get_or_create_game_user(user_id)
+        if (user.get("stars") or 0) < bet:
+            raise ValueError(f"Недостаточно ⭐. Баланс: {user.get('stars', 0)}")
+
+        # Deduct bet
+        async with self.db.pool.acquire() as conn:
+            await conn.execute("UPDATE game_users SET stars = stars - $1 WHERE user_id = $2", bet, user_id)
+
+        # Roll the dice
+        roll = random.random()
+        outcomes = [
+            (0.40, 0, "😢"),   # 40% lose
+            (0.70, 1.5, "🟡"),  # 30% x1.5
+            (0.90, 2.0, "🟢"),  # 20% x2
+            (0.99, 3.0, "🔵"),  # 9%  x3
+            (1.00, 5.0, "💎"),  # 1%  x5
+        ]
+        multiplier = 0
+        emoji = ""
+        for cum_prob, mult, emj in outcomes:
+            if roll <= cum_prob:
+                multiplier = mult
+                emoji = emj
+                break
+
+        win_amount = int(bet * multiplier)
+        net = win_amount - bet
+        won = net > 0
+
+        if win_amount > 0:
+            await self.db.add_stars(user_id, win_amount)
+
+        # Record spin in Redis (last 20)
+        history_key = f"roulette:history:{user_id}"
+        spin = {
+            "bet": bet, "multiplier": multiplier, "win": win_amount,
+            "net": net, "ts": datetime.now(timezone.utc).isoformat()
+        }
+        raw = await redis.get(history_key)
+        history = json.loads(raw) if raw else []
+        history.append(spin)
+        if len(history) > 20:
+            history = history[-20:]
+        await redis.setex(history_key, 86400, json.dumps(history, ensure_ascii=False))
+        await redis.setex(cooldown_key, 3, "1")
+
+        return {
+            "bet": bet, "multiplier": multiplier, "win": win_amount,
+            "net": net, "won": won, "emoji": emoji,
+        }
+
+    async def get_mining_state(self, user_id: int, redis) -> dict:
+        key = f"mining:{user_id}"
+        data = await redis.get(key)
+        state = json.loads(data) if data else {"earned": 0, "last_click": None, "streak": 0}
+
+        now = datetime.now(timezone.utc)
+        can_mine = True
+        cooldown_min = 0
+        if state.get("last_click"):
+            last_dt = datetime.fromisoformat(state["last_click"])
+            secs_since = (now - last_dt).total_seconds()
+            if secs_since < 3600:
+                can_mine = False
+                cooldown_min = int(60 - secs_since / 60)
+
+        refs = await self.db.get_referral_stats(user_id)
+        ref_mult = 1 + min(1.0, refs["count"] * 0.1)
+        streak_mult = min(2.0, 1 + state.get("streak", 0) * 0.05)
+
+        sats_to_stars = int(state["earned"] // 1000)
+        return {
+            "total_sats": int(state["earned"]),
+            "streak": state.get("streak", 0),
+            "can_mine": can_mine,
+            "cooldown_min": cooldown_min,
+            "ref_mult": round(ref_mult, 2),
+            "streak_mult": round(streak_mult, 2),
+            "stars": int(sats_to_stars),
+            "referrals": refs["count"],
         }

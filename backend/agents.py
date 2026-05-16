@@ -2,6 +2,7 @@ import json
 import os
 from typing import Optional
 
+from loguru import logger
 from openai import AsyncOpenAI
 
 from btcbot.config import settings
@@ -36,8 +37,8 @@ def _get_client() -> AsyncOpenAI:
         _client = AsyncOpenAI(
             api_key=settings.opencode_go_api_key,
             base_url=settings.opencode_go_endpoint,
-            timeout=45.0,
-            max_retries=1,
+            timeout=120.0,
+            max_retries=2,
         )
     return _client
 
@@ -48,7 +49,7 @@ def _get_openrouter_client() -> AsyncOpenAI:
         _openrouter_client = AsyncOpenAI(
             api_key=settings.openrouter_api_key,
             base_url="https://openrouter.ai/api/v1",
-            timeout=60.0,
+            timeout=120.0,
             max_retries=2,
         )
     return _openrouter_client
@@ -108,10 +109,16 @@ async def ask_agent(agent_name: str, prompt: str, temperature: Optional[float] =
         {"role": "user", "content": prompt},
     ]
 
+    result = await _ask_opencode(model, messages, temp)
+    if result and "[Agent error:" not in result:
+        logger.info(f"ask_agent: OpenCode Go OK [{agent_name}]")
+        return result
+
+    logger.warning(f"ask_agent: OpenCode Go failed, trying OpenRouter [{agent_name}]")
     if settings.openrouter_api_key:
         return await _ask_openrouter(agent, messages, temp)
 
-    return await _ask_opencode(model, messages, temp)
+    return result
 
 
 async def _ask_opencode(model: str, messages: list, temperature: float) -> Optional[str]:

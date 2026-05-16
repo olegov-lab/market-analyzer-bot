@@ -8,9 +8,9 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, W
 from loguru import logger
 
 from backend.agents import ask_agent
-from bot.state import analyzer, bot, db, dp, fear_greed, menu_kb, redis_client, _ts
+from bot.state import analyzer, bot, db, dp, fear_greed, menu_kb, redis_client, _tz_for, _ts_from_tz
 from btcbot.config import settings
-from btcbot.subscription import get_ask_count_today, has_feature, increment_ask_count
+from btcbot.subscription import has_feature
 from btcbot.utils import safe_gather
 from bot.handlers.voice import transcribe_voice
 
@@ -108,6 +108,7 @@ async def ask(message: Message):
         question = ""
 
     if not question:
+        tz = await _tz_for(message.from_user.id)
         await message.answer(
             "🧠 *BTC Monitor* · Аналитика\n\n"
             "Задай вопрос о Bitcoin и Market-Brain ответит:\n\n"
@@ -115,28 +116,14 @@ async def ask(message: Message):
             "▪ /ask Что такое MVRV?\n"
             "▪ /ask Прогноз на неделю\n"
             "▪ /ask Стоит ли покупать сейчас?\n\n"
-            f"{_ts()}",
+            f"{_ts_from_tz(tz)}",
             reply_markup=menu_kb,
         )
         return
 
     user_id = message.from_user.id
-
-    # Check rate limit and subscription
-    is_pro = await has_feature(db, user_id, "ask_unlimited")
-    if not is_pro:
-        ask_count = await get_ask_count_today(redis_client, user_id)
-        if ask_count >= 3:
-            await message.answer(
-                "🔒 *BTC Monitor* · Лимит\n\n"
-                "3 AI-вопроса в день для бесплатного тарифа.\n\n"
-                "🎁 У вас может быть активен 3-дневный PRO триал.\n"
-                "💎 Оформите PRO за 80 ⭐ — ∞ вопросов!\n\n"
-                "/start чтобы проверить триал",
-                parse_mode="Markdown",
-                reply_markup=menu_kb,
-            )
-            return
+    tz = await _tz_for(user_id)
+    ts = _ts_from_tz(tz)
 
     pending_key = f"{PENDING_PREFIX}{user_id}"
     if redis_client and await redis_client.exists(pending_key):
@@ -148,15 +135,13 @@ async def ask(message: Message):
 
     if redis_client:
         await redis_client.setex(pending_key, PENDING_TTL, "1")
-    if not is_pro:
-        await increment_ask_count(redis_client, user_id)
 
     thinking = await message.answer(
-        f"⏳ Анализирую рынок…\n\n{_ts()}",
+        f"⏳ Анализирую рынок…\n\n{ts}",
         reply_markup=menu_kb,
     )
 
-    ctx_parts = [f"Сегодня {_ts()}"]
+    ctx_parts = [f"Сегодня {ts}"]
     price = await db.get_latest_price("BTCUSD")
     if price:
         ctx_parts.append(f"Цена BTC: ${price:,.0f}")
@@ -193,7 +178,7 @@ async def ask(message: Message):
                 f"Контекст рынка: {ctx}\n\nВопрос пользователя: {question}\n\nОтветь на русском языке, используя контекст если нужно.",
                 temperature=0.7,
             ),
-            timeout=40.0,
+            timeout=120.0,
         )
     except Exception:
         response = None
@@ -209,7 +194,7 @@ async def ask(message: Message):
     if not response or "[Agent error:" in response:
         fallback = _rule_based_analysis(price, ind, fng, consensus, vol)
         await message.answer(
-            f"📊 BTC Monitor · Аналитика\n\n{_ts()}\n\n{fallback}\n\n♻️ Анализ на основе рыночных данных (AI временно недоступен)",
+            f"📊 BTC Monitor · Аналитика\n\n{ts}\n\n{fallback}\n\n♻️ Анализ на основе рыночных данных (AI временно недоступен)",
             reply_markup=menu_kb,
         )
         return
@@ -220,11 +205,11 @@ async def ask(message: Message):
     clean_response, chart_buttons = _parse_chart_markers(response)
     reply_markup = menu_kb
     if chart_buttons:
-        kb = InlineKeyboardMarkup(inline_keyboard=[chart_buttons])
+        kb = InlineKeyboardMarkup(inline_keyboard=[[b] for b in chart_buttons])
         reply_markup = kb
 
     await message.answer(
-        f"🧠 BTC Monitor · Аналитика\n\n{_ts()}\n\n{clean_response}\n\n♻️ Отвечает Market-Brain на базе AI",
+        f"🧠 BTC Monitor · Аналитика\n\n{ts}\n\n{clean_response}\n\n♻️ Отвечает Market-Brain на базе AI",
         reply_markup=reply_markup,
     )
 
@@ -232,6 +217,8 @@ async def ask(message: Message):
 @dp.message(F.voice)
 async def voice_ask(message: Message):
     user_id = message.from_user.id
+    tz = await _tz_for(user_id)
+    ts = _ts_from_tz(tz)
     is_pro_plus = await has_feature(db, user_id, "voice_input")
     if not is_pro_plus:
         await message.answer(
@@ -253,7 +240,7 @@ async def voice_ask(message: Message):
         await redis_client.setex(pending_key, PENDING_TTL, "1")
 
     await bot.send_chat_action(message.chat.id, "typing")
-    status_msg = await message.answer("🎤 Распознаю голос...\n\n" + _ts(), reply_markup=menu_kb)
+    status_msg = await message.answer("🎤 Распознаю голос...\n\n" + ts, reply_markup=menu_kb)
 
     try:
         file_info = await bot.get_file(message.voice.file_id)
@@ -270,7 +257,7 @@ async def voice_ask(message: Message):
                 await redis_client.delete(pending_key)
             return
 
-        await status_msg.edit_text(f"🗣 *{text[:200]}{'...' if len(text) > 200 else ''}*\n\n⏳ Анализирую...\n\n{_ts()}", parse_mode="Markdown", reply_markup=menu_kb)
+        await status_msg.edit_text(f"🗣 *{text[:200]}{'...' if len(text) > 200 else ''}*\n\n⏳ Анализирую...\n\n{ts}", parse_mode="Markdown", reply_markup=menu_kb)
         await bot.send_chat_action(message.chat.id, "typing")
 
         price, indicators, fng, pred = await safe_gather(
@@ -298,14 +285,14 @@ async def voice_ask(message: Message):
             consensus = await analyzer.compute_consensus()
             fallback = _rule_based_analysis(price, ind_dict, fng, consensus, vol)
             await message.answer(
-                f"📊 BTC Monitor · Аналитика\n\n{_ts()}\n\n{fallback}\n\n♻️ Анализ на основе рыночных данных (AI временно недоступен)",
+                f"📊 BTC Monitor · Аналитика\n\n{ts}\n\n{fallback}\n\n♻️ Анализ на основе рыночных данных (AI временно недоступен)",
                 reply_markup=menu_kb,
             )
         else:
             parsed_text, chart_markers = _parse_chart_markers(answer)
             reply_markup = menu_kb
             if chart_markers:
-                reply_markup = InlineKeyboardMarkup(inline_keyboard=[chart_markers])
+                reply_markup = InlineKeyboardMarkup(inline_keyboard=[[b] for b in chart_markers])
             text_to_send = parsed_text[:4000]
             await message.answer(text_to_send, parse_mode="HTML", reply_markup=reply_markup)
     except Exception as e:

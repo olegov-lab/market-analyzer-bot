@@ -2,12 +2,14 @@ from aiogram import F
 from aiogram.filters import Command, or_f
 from aiogram.types import Message
 
-from bot.state import dp, menu_kb, redis_client, _ts
+from bot.state import dp, menu_kb, redis_client, _tz_for, _ts_from_tz
 from btcbot.news import build_market_brain_comment, fetch_news
 
 
 @dp.message(or_f(Command(commands=["news"]), F.text == "📰 Новости"))
 async def news_cmd(message: Message):
+    tz = await _tz_for(message.from_user.id)
+    ts = _ts_from_tz(tz)
     articles = await fetch_news(redis_client)
     if not articles:
         await message.answer("Новостей пока нет", reply_markup=menu_kb)
@@ -22,7 +24,7 @@ async def news_cmd(message: Message):
     worry = bear_count / total if total else 0
     worry_label = "🔴 высокий" if worry >= 0.6 else "🟡 средний" if worry >= 0.3 else "🟢 низкий"
 
-    lines = ["📊 *BTC Monitor* · Пульс", "", _ts(), ""]
+    lines = ["📊 *BTC Monitor* · Пульс", "", ts, ""]
     lines.append(f"▸ **Настроение:** {mood}")
     lines.append(f"▸ **Бычьих:** {bull_count}  **Медвежьих:** {bear_count}")
     lines.append(f"▸ **Тревога:** {worry_label}")

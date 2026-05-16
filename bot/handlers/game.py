@@ -3,7 +3,7 @@ from aiogram.filters import Command, or_f
 from aiogram.types import Message
 
 from btcbot.game import GameEngine
-from btcbot.subscription import get_trade_count_today, increment_trade_count, has_feature, get_user_tier, Tier
+from btcbot.subscription import get_user_tier, Tier
 from bot.state import db, dp, redis_client, menu_kb
 
 
@@ -11,20 +11,6 @@ game = GameEngine(db)
 
 
 async def _check_trade_limit(user_id: int, msg_func) -> bool:
-    is_pro = await has_feature(db, user_id, "game_unlimited")
-    if is_pro:
-        return True
-    count = await get_trade_count_today(redis_client, user_id)
-    if count >= 3:
-        await msg_func(
-            "🔒 *BTC Monitor* · Лимит\n\n"
-            "3 сделки в день для бесплатного тарифа.\n\n"
-            "💎 PRO (80 ⭐/мес) — безлимитная торговля + ∞ AI.",
-            parse_mode="Markdown",
-            reply_markup=menu_kb,
-        )
-        return False
-    await increment_trade_count(redis_client, user_id)
     return True
 
 
@@ -80,6 +66,7 @@ async def portfolio_cmd(message: Message):
     await db.upsert_user(uid, message.from_user.username)
     tier = await get_user_tier(db, uid)
     p = await game.get_portfolio(uid)
+    mining = await game.get_mining_state(uid, redis_client)
 
     badge = " 💎 PRO" if tier == Tier.PRO else " 👑 PRO+" if tier == Tier.PRO_PLUS else ""
     parts = [f"💰 <b>Портфель{badge}</b>", ""]
@@ -88,6 +75,7 @@ async def portfolio_cmd(message: Message):
     sign = "+" if p["total_pnl"] >= 0 else ""
     parts.append(f"▪ P&amp;L: {sign}${p['total_pnl']:,.2f}")
     parts.append(f"▪ Сделок: {p['total_trades']} | Win: {p['win_rate']}%")
+    parts.append(f"⛏ Стрик майнинга: {mining['streak']} дней | ⭐ {mining['stars']}")
 
     if p["positions"]:
         parts.append("")

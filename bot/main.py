@@ -1,11 +1,12 @@
 import asyncio
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
+from datetime import timezone as dt_timezone
 
-from aiogram.types import MenuButtonWebApp, WebAppInfo
+from aiogram.types import BotCommand, BotCommandScopeDefault, MenuButtonWebApp, WebAppInfo
 
 from bot.state import bot, db, dp, redis_client, analyzer, _ts
-from bot.handlers import alerts, ask, btc, game, info, learn, news, price_alerts, menu, subscribe
+from bot.handlers import alerts, ask, btc, game, info, learn, news, price_alerts, menu, subscribe, timezone
 from btcbot.config import settings
 from btcbot.news import build_market_brain_comment, fetch_news
 
@@ -15,6 +16,26 @@ async def on_startup():
     print("[DEBUG] on_startup: connecting to DB...")
     await db.connect()
     print("[DEBUG] on_startup: DB connected, setting menu button...")
+
+    try:
+        await bot.set_my_commands([
+            BotCommand(command="start", description="Главное меню"),
+            BotCommand(command="btc", description="Цена и индикаторы"),
+            BotCommand(command="predict", description="Прогноз BTC"),
+            BotCommand(command="ask", description="AI-аналитик"),
+            BotCommand(command="portfolio", description="Портфель и игры"),
+            BotCommand(command="news", description="Пульс рынка"),
+            BotCommand(command="learn", description="Азбука крипты"),
+            BotCommand(command="subscribe", description="Уведомления"),
+            BotCommand(command="alerts", description="Мои подписки"),
+            BotCommand(command="timezone", description="Часовой пояс"),
+            BotCommand(command="referral", description="Привести друга"),
+            BotCommand(command="donate", description="Поддержать проект"),
+            BotCommand(command="help", description="Помощь"),
+        ], scope=BotCommandScopeDefault())
+        print("[DEBUG] on_startup: commands set OK")
+    except Exception as e:
+        print(f"[DEBUG] on_startup: Failed to set commands: {e}")
 
     try:
         print(f"[DEBUG] on_startup: miniapp_url={settings.miniapp_url}")
@@ -42,7 +63,7 @@ async def on_shutdown():
 
 async def _daily_news():
     while True:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(dt_timezone.utc)
         target = now.replace(hour=10, minute=0, second=0, microsecond=0)
         if now >= target:
             target += timedelta(days=1)

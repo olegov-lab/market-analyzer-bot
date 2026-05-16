@@ -3,11 +3,13 @@ import re
 from aiogram.filters import Command
 from aiogram.types import Message
 
-from bot.state import db, dp, menu_kb, _ts
+from bot.state import db, dp, menu_kb, _tz_for, _ts_from_tz
 
 
 @dp.message(Command(commands=["alert"]))
 async def set_alert(message: Message):
+    tz = await _tz_for(message.from_user.id)
+    ts = _ts_from_tz(tz)
     text = message.text.strip()
     args = text.removeprefix("/alert").strip()
 
@@ -20,7 +22,7 @@ async def set_alert(message: Message):
             f"▪ `/alert below 30000` — когда упадёт ниже\n\n"
             f"Список: `/alerts`\n"
             f"Удалить: `/alert_remove <id>`\n\n"
-            f"{_ts()}",
+            f"{ts}",
             parse_mode="Markdown",
             reply_markup=menu_kb,
         )
@@ -43,7 +45,7 @@ async def set_alert(message: Message):
             f"❌ *BTC Monitor* · Ошибка\n\n"
             f"Некорректная цена: `{price_str}`\n"
             f"Пример: `/alert 50000`\n\n"
-            f"{_ts()}",
+            f"{ts}",
             parse_mode="Markdown",
             reply_markup=menu_kb,
         )
@@ -51,7 +53,7 @@ async def set_alert(message: Message):
 
     if target_price <= 0:
         await message.answer(
-            f"❌ Цена должна быть положительным числом\n\n{_ts()}",
+            f"❌ Цена должна быть положительным числом\n\n{ts}",
             parse_mode="Markdown",
             reply_markup=menu_kb,
         )
@@ -66,7 +68,7 @@ async def set_alert(message: Message):
         f"🔔 Я оповещу, когда BTC будет **{dir_text}** ${target_price:,.0f}\n"
         f"🆔 ID: {alert_id}\n\n"
         f"Удалить: `/alert_remove {alert_id}`\n\n"
-        f"{_ts()}",
+        f"{ts}",
         parse_mode="Markdown",
         reply_markup=menu_kb,
     )
@@ -74,6 +76,8 @@ async def set_alert(message: Message):
 
 @dp.message(Command(commands=["alert_remove"]))
 async def remove_alert(message: Message):
+    tz = await _tz_for(message.from_user.id)
+    ts = _ts_from_tz(tz)
     text = message.text.strip()
     args = text.removeprefix("/alert_remove").strip()
 
@@ -81,7 +85,7 @@ async def remove_alert(message: Message):
         await message.answer(
             f"❌ Укажи ID сигнала: `/alert_remove <id>`\n\n"
             f"Список: `/alerts`\n\n"
-            f"{_ts()}",
+            f"{ts}",
             parse_mode="Markdown",
             reply_markup=menu_kb,
         )
@@ -91,7 +95,7 @@ async def remove_alert(message: Message):
         alert_id = int(args)
     except ValueError:
         await message.answer(
-            f"❌ Некорректный ID: `{args}`\n\n{_ts()}",
+            f"❌ Некорректный ID: `{args}`\n\n{ts}",
             parse_mode="Markdown",
             reply_markup=menu_kb,
         )
@@ -101,7 +105,7 @@ async def remove_alert(message: Message):
     await message.answer(
         f"✅ *BTC Monitor* · Ценовой сигнал\n\n"
         f"Сигнал #{alert_id} удалён\n\n"
-        f"{_ts()}",
+        f"{ts}",
         parse_mode="Markdown",
         reply_markup=menu_kb,
     )

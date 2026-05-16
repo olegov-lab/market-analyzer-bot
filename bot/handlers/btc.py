@@ -4,7 +4,7 @@ from aiogram import F
 from aiogram.filters import Command, or_f
 from aiogram.types import Message
 
-from bot.state import analyzer, db, dp, fear_greed, menu_kb, redis_client, _ts, _rsi_bar
+from bot.state import analyzer, db, dp, fear_greed, menu_kb, redis_client, _rsi_bar, _tz_for, _ts_from_tz
 
 
 async def _estimate_hours(db, symbol: str) -> float:
@@ -29,11 +29,13 @@ async def _estimate_ondays(db) -> float:
 
 @dp.message(or_f(Command(commands=["btc"]), F.text == "📊 Аналитика"))
 async def btc(message: Message):
+    tz = await _tz_for(message.from_user.id)
+    ts = _ts_from_tz(tz)
     indicators = await analyzer.compute_indicators()
     price = await db.get_latest_price("BTCUSD")
 
     if not price:
-        await message.answer(f"❌ Нет данных о цене\n\n{_ts()}", parse_mode="Markdown", reply_markup=menu_kb)
+        await message.answer(f"❌ Нет данных о цене\n\n{ts}", parse_mode="Markdown", reply_markup=menu_kb)
         return
 
     pred = await analyzer.predict()
@@ -41,7 +43,7 @@ async def btc(message: Message):
     sig_emoji = "🟢" if pred and pred.direction == "BUY" else "🔴" if pred and pred.direction == "SELL" else "⚪"
     sig_word = "BUY" if pred and pred.direction == "BUY" else "SELL" if pred and pred.direction == "SELL" else "HOLD"
 
-    lines = [f"💰 *BTC Monitor* · Цена", "", _ts(), ""]
+    lines = [f"💰 *BTC Monitor* · Цена", "", ts, ""]
     lines.append(f"── {sig_emoji} 𝙎𝙄𝙂𝙉𝘼𝙇: {sig_word} {sig_emoji} ──")
     lines.append("")
     lines.append(f"▸ **BTC/USD:** ${price:,.0f}")
@@ -158,10 +160,12 @@ async def btc(message: Message):
 
 @dp.message(Command(commands=["predict"]))
 async def predict(message: Message):
+    tz = await _tz_for(message.from_user.id)
+    ts = _ts_from_tz(tz)
     price = await db.get_latest_price("BTCUSD")
     if not price:
         await message.answer(
-            f"🔮 *BTC Monitor* · Прогноз\n\n⏳ данных пока нет, ожидаем 1–2 мин\n\n{_ts()}",
+            f"🔮 *BTC Monitor* · Прогноз\n\n⏳ данных пока нет, ожидаем 1–2 мин\n\n{ts}",
             parse_mode="Markdown",
             reply_markup=menu_kb,
         )
@@ -171,7 +175,7 @@ async def predict(message: Message):
 
     pred = await analyzer.predict()
 
-    lines = [f"🔮 *BTC Monitor* · Прогноз", "", _ts(), ""]
+    lines = [f"🔮 *BTC Monitor* · Прогноз", "", ts, ""]
 
     if pred:
         meta = pred.meta or {}
@@ -251,10 +255,12 @@ async def predict(message: Message):
 
 @dp.message(Command(commands=["volatility"]))
 async def volatility(message: Message):
+    tz = await _tz_for(message.from_user.id)
+    ts = _ts_from_tz(tz)
     vol = await analyzer.compute_volatility()
     if not vol:
         await message.answer(
-            f"📊 *BTC Monitor* · Волатильность\n\n⏳ недостаточно данных\n\n{_ts()}",
+            f"📊 *BTC Monitor* · Волатильность\n\n⏳ недостаточно данных\n\n{ts}",
             parse_mode="Markdown",
             reply_markup=menu_kb,
         )
@@ -264,7 +270,7 @@ async def volatility(message: Message):
     lines = [
         f"📊 *BTC Monitor* · Волатильность",
         "",
-        _ts(),
+        ts,
         "",
         f"▸ **Уровень:** {labels.get(vol.classification, vol.classification)} · {conf_pct}%",
         "",

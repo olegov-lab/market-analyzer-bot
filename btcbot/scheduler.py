@@ -76,6 +76,12 @@ class Scheduler:
             id="daily_story",
             replace_existing=True,
         )
+        self.scheduler.add_job(
+            self._resolve_price_guesses,
+            CronTrigger(hour="0", minute="5"),
+            id="resolve_guesses",
+            replace_existing=True,
+        )
         self.scheduler.start()
         logger.info("Scheduler started")
 
@@ -138,6 +144,19 @@ class Scheduler:
         except Exception as e:
             logger.error(f"Daily story generation failed: {e}")
 
+    async def _resolve_price_guesses(self) -> None:
+        logger.info("Resolving daily price guesses...")
+        try:
+            price = await self.analyzer.db.get_latest_price("BTCUSD")
+            if price:
+                results = await self.analyzer.db.resolve_guesses(price)
+                if results:
+                    winners = [r for r in results if r.get("won")]
+                    for w in winners:
+                        logger.info(f"Guess winner: user {w['user_id']} won {w['stars_won']} stars")
+        except Exception as e:
+            logger.error(f"Guess resolution failed: {e}")
+
     async def _make_prediction_1w(self) -> None:
         logger.info("Computing weekly on-chain prediction")
         try:
@@ -151,6 +170,20 @@ class Scheduler:
             logger.error("1W prediction failed: {}", e)
 
 
+async def _auto_seed(db):
+    try:
+        from btcbot.seed_history import seed
+        n = await seed(db, days=90)
+        if n > 0:
+            logger.info(f"Auto-seeded {n} historical prices, refreshing aggregates...")
+            async with db.pool.acquire() as conn:
+                await conn.execute("CALL refresh_continuous_aggregate('candles_1m', NULL, NULL)")
+                await conn.execute("CALL refresh_continuous_aggregate('candles_4h', NULL, NULL)")
+            logger.info("Continuous aggregates refreshed after seed")
+    except Exception as e:
+        logger.warning(f"Auto-seed skipped: {e}")
+
+
 async def main() -> None:
     import redis.asyncio as aioredis
     from btcbot.alerts import AlertManager
@@ -158,6 +191,8 @@ async def main() -> None:
 
     db = Database(settings.database_url)
     await db.connect()
+
+    asyncio.create_task(_auto_seed(db))
 
     r = aioredis.from_url(settings.redis_url)
     bot = Bot(token=settings.telegram_bot_token)

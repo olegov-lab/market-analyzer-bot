@@ -88,7 +88,7 @@ class ProactiveAlertEngine:
         prev_state = await self.redis.get("btc:ma_cross:state")
         above = price > ind["ma_200"]
         new_state = "above" if above else "below"
-        if prev_state and prev_state.decode() if isinstance(prev_state, bytes) else prev_state == new_state:
+        if prev_state and (prev_state.decode() if isinstance(prev_state, bytes) else prev_state) == new_state:
             return None
         await self.redis.set("btc:ma_cross:state", new_state)
         if prev_state is None:

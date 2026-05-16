@@ -15,12 +15,12 @@ class Database:
 
     async def connect(self) -> None:
         try:
-            self.pool = await asyncpg.create_pool(self.dsn, min_size=2, max_size=10)
+            self.pool = await asyncpg.create_pool(self.dsn, min_size=1, max_size=3)
         except asyncpg.InvalidCatalogNameError:
             dbname = self._parse_dbname()
             logger.warning("Database '{}' not found, creating...", dbname)
             await self._ensure_database(dbname)
-            self.pool = await asyncpg.create_pool(self.dsn, min_size=2, max_size=10)
+            self.pool = await asyncpg.create_pool(self.dsn, min_size=1, max_size=3)
         await self._init_schema()
         logger.info("Database connected")
 
@@ -127,7 +127,7 @@ class Database:
                     username TEXT,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     is_active BOOLEAN DEFAULT TRUE,
-                    timezone TEXT DEFAULT 'UTC'
+                    timezone TEXT DEFAULT 'Europe/Moscow'
                 )
             """)
 
@@ -249,6 +249,10 @@ class Database:
             """)
             try:
                 await conn.execute("ALTER TABLE game_users ADD COLUMN IF NOT EXISTS stars BIGINT DEFAULT 0")
+            except Exception:
+                pass
+            try:
+                await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone TEXT DEFAULT 'Europe/Moscow'")
             except Exception:
                 pass
             await conn.execute("""
@@ -388,6 +392,15 @@ class Database:
                 "INSERT INTO users (user_id, username) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET username = COALESCE($2, users.username)",
                 user_id, username,
             )
+
+    async def get_user_timezone(self, user_id: int) -> str:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchval("SELECT timezone FROM users WHERE user_id=$1", user_id)
+            return row or "Europe/Moscow"
+
+    async def set_user_timezone(self, user_id: int, tz: str) -> None:
+        async with self.pool.acquire() as conn:
+            await conn.execute("UPDATE users SET timezone=$1 WHERE user_id=$2", tz, user_id)
 
     async def add_subscription(
         self, user_id: int, symbol: str, interval: str, alert_types: list[str]
@@ -868,3 +881,176 @@ class Database:
     async def add_stars(self, user_id: int, amount: int) -> None:
         async with self.pool.acquire() as conn:
             await conn.execute("UPDATE game_users SET stars = stars + $1 WHERE user_id = $2", amount, user_id)
+
+    # ─── Price Guess ──────────────────────────────────────────────
+
+    async def _ensure_price_guesses_table(self):
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS price_guesses (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+                    guess_date DATE NOT NULL DEFAULT CURRENT_DATE,
+                    guess_price DOUBLE PRECISION NOT NULL,
+                    btc_price_at_resolution DOUBLE PRECISION,
+                    deviation_pct DOUBLE PRECISION,
+                    won BOOLEAN DEFAULT FALSE,
+                    stars_won INT DEFAULT 0,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE (user_id, guess_date)
+                )
+            """)
+
+    async def submit_price_guess(self, user_id: int, guess_price: float) -> dict:
+        await self._ensure_price_guesses_table()
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "INSERT INTO price_guesses (user_id, guess_price) VALUES ($1, $2) "
+                "ON CONFLICT (user_id, guess_date) DO UPDATE SET guess_price = $2 "
+                "RETURNING id, guess_date, guess_price",
+                user_id, guess_price,
+            )
+            return {"id": row["id"], "guess_date": str(row["guess_date"]), "guess_price": row["guess_price"]}
+
+    async def get_user_guess_today(self, user_id: int) -> Optional[asyncpg.Record]:
+        await self._ensure_price_guesses_table()
+        async with self.pool.acquire() as conn:
+            return await conn.fetchrow(
+                "SELECT * FROM price_guesses WHERE user_id = $1 AND guess_date = CURRENT_DATE",
+                user_id,
+            )
+
+    async def get_all_guesses_for_date(self, guess_date=None) -> list[asyncpg.Record]:
+        await self._ensure_price_guesses_table()
+        async with self.pool.acquire() as conn:
+            if guess_date:
+                return await conn.fetch(
+                    "SELECT pg.*, u.username FROM price_guesses pg "
+                    "JOIN users u ON pg.user_id = u.user_id "
+                    "WHERE pg.guess_date = $1 ORDER BY pg.created_at ASC",
+                    guess_date,
+                )
+            return await conn.fetch(
+                "SELECT pg.*, u.username FROM price_guesses pg "
+                "JOIN users u ON pg.user_id = u.user_id "
+                "WHERE pg.guess_date = CURRENT_DATE ORDER BY pg.created_at ASC",
+            )
+
+    async def resolve_guesses(self, btc_price: float) -> list[dict]:
+        await self._ensure_price_guesses_table()
+        async with self.pool.acquire() as conn:
+            yesterday = await conn.fetchval("SELECT CURRENT_DATE - INTERVAL '1 day'")
+            guesses = await conn.fetch(
+                "SELECT * FROM price_guesses WHERE guess_date = $1 AND btc_price_at_resolution IS NULL",
+                yesterday,
+            )
+            if not guesses:
+                return []
+            results = []
+            for g in guesses:
+                dev = abs(g["guess_price"] - btc_price) / btc_price * 100
+                await conn.execute(
+                    "UPDATE price_guesses SET btc_price_at_resolution = $1, deviation_pct = $2 WHERE id = $3",
+                    btc_price, dev, g["id"],
+                )
+                results.append({"user_id": g["user_id"], "guess_id": g["id"], "deviation_pct": dev})
+            # Find closest
+            if results:
+                closest = min(results, key=lambda r: r["deviation_pct"])
+                if closest["deviation_pct"] <= 5:  # within 5% wins
+                    winner_pct = 50 if closest["deviation_pct"] <= 1 else (20 if closest["deviation_pct"] <= 3 else 5)
+                    await conn.execute(
+                        "UPDATE price_guesses SET won = TRUE, stars_won = $1 WHERE id = $2",
+                        winner_pct, closest["guess_id"],
+                    )
+                    await conn.execute(
+                        "UPDATE game_users SET stars = stars + $1 WHERE user_id = $2",
+                        winner_pct, closest["user_id"],
+                    )
+                    closest["won"] = True
+                    closest["stars_won"] = winner_pct
+            return results
+
+    async def get_guess_history(self, user_id: int, limit: int = 10) -> list[asyncpg.Record]:
+        await self._ensure_price_guesses_table()
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(
+                "SELECT * FROM price_guesses WHERE user_id = $1 ORDER BY guess_date DESC LIMIT $2",
+                user_id, limit,
+            )
+
+    # ─── Achievements ─────────────────────────────────────────────
+
+    ACHIEVEMENTS = [
+        {"slug": "first_trade", "name": "Первая сделка", "desc": "Совершите первую сделку", "icon": "🎯", "category": "trader"},
+        {"slug": "ten_trades", "name": "10 сделок", "desc": "Совершите 10 сделок", "icon": "📈", "category": "trader"},
+        {"slug": "fifty_trades", "name": "50 сделок", "desc": "Совершите 50 сделок", "icon": "🔥", "category": "trader"},
+        {"slug": "win_streak_3", "name": "3 победы подряд", "desc": "Сделайте 3 прибыльные сделки подряд", "icon": "⚡", "category": "trader"},
+        {"slug": "profit_100", "name": "Прибыль $100", "desc": "Заработайте $100", "icon": "💰", "category": "trader"},
+        {"slug": "profit_1000", "name": "Прибыль $1000", "desc": "Заработайте $1000", "icon": "💎", "category": "trader"},
+        {"slug": "profit_10000", "name": "Прибыль $10,000", "desc": "Заработайте $10,000", "icon": "👑", "category": "trader"},
+        {"slug": "guess_3_streak", "name": "3 дня прогнозов", "desc": "Угадывайте цену 3 дня подряд", "icon": "🔮", "category": "guesser"},
+        {"slug": "guess_winner", "name": "Победитель дня", "desc": "Выиграйте раунд угадайки", "icon": "🏆", "category": "guesser"},
+        {"slug": "tournament_winner", "name": "Чемпион турнира", "desc": "Займите 1 место в турнире", "icon": "🥇", "category": "arena"},
+        {"slug": "referral_3", "name": "3 реферала", "desc": "Пригласите 3 друзей", "icon": "👥", "category": "social"},
+        {"slug": "referral_10", "name": "10 рефералов", "desc": "Пригласите 10 друзей", "icon": "🌟", "category": "social"},
+        {"slug": "mining_1000", "name": "Майнер-любитель", "desc": "Накопайте 1000 сатоши", "icon": "⛏", "category": "miner"},
+        {"slug": "mining_10000", "name": "Майнер-профи", "desc": "Накопайте 10,000 сатоши", "icon": "⚙️", "category": "miner"},
+        {"slug": "platinum_league", "name": "Платиновая лига", "desc": "Достигните платиновой лиги", "icon": "💿", "category": "arena"},
+        {"slug": "week_streak", "name": "Недельный стрик", "desc": "Заходите в бота 7 дней подряд", "icon": "📅", "category": "social"},
+    ]
+
+    async def _ensure_achievements_table(self):
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS achievements (
+                    slug TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    icon TEXT NOT NULL,
+                    category TEXT NOT NULL
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS user_achievements (
+                    user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+                    slug TEXT REFERENCES achievements(slug) ON DELETE CASCADE,
+                    unlocked_at TIMESTAMPTZ DEFAULT NOW(),
+                    PRIMARY KEY (user_id, slug)
+                )
+            """)
+            # Seed achievements
+            for a in self.ACHIEVEMENTS:
+                await conn.execute(
+                    "INSERT INTO achievements (slug, name, description, icon, category) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
+                    a["slug"], a["name"], a["desc"], a["icon"], a["category"],
+                )
+
+    async def unlock_achievement(self, user_id: int, slug: str) -> Optional[dict]:
+        await self._ensure_achievements_table()
+        async with self.pool.acquire() as conn:
+            try:
+                row = await conn.fetchrow(
+                    "INSERT INTO user_achievements (user_id, slug) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING *",
+                    user_id, slug,
+                )
+                if row:
+                    ach = await conn.fetchrow("SELECT * FROM achievements WHERE slug = $1", slug)
+                    return {"slug": ach["slug"], "name": ach["name"], "icon": ach["icon"]}
+            except Exception:
+                return None
+
+    async def get_user_achievements(self, user_id: int) -> list[asyncpg.Record]:
+        await self._ensure_achievements_table()
+        async with self.pool.acquire() as conn:
+            return await conn.fetch("""
+                SELECT a.*, ua.unlocked_at
+                FROM achievements a
+                LEFT JOIN user_achievements ua ON a.slug = ua.slug AND ua.user_id = $1
+                ORDER BY a.category, a.slug
+            """, user_id)
+
+    async def get_all_achievements(self) -> list[asyncpg.Record]:
+        await self._ensure_achievements_table()
+        async with self.pool.acquire() as conn:
+            return await conn.fetch("SELECT * FROM achievements ORDER BY category, slug")

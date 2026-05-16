@@ -95,6 +95,20 @@ async def upgrade_plus(message: Message):
     )
 
 
+@dp.message(Command(commands=["donate"]))
+async def donate(message: Message):
+    await bot.send_invoice(
+        chat_id=message.chat.id,
+        title="☕ Поддержать BTC Monitor",
+        description="Разработка BTC Monitor — это open-source проект. "
+                    "Ваши Stars помогают покрывать сервер и API.",
+        payload="donation",
+        currency="XTR",
+        prices=[LabeledPrice(label="☕ Чашка кофе для разработчика", amount=10)],
+        provider_token="",
+    )
+
+
 @dp.pre_checkout_query()
 async def pre_checkout(pre_checkout_query: PreCheckoutQuery):
     await pre_checkout_query.answer(ok=True)
@@ -103,6 +117,15 @@ async def pre_checkout(pre_checkout_query: PreCheckoutQuery):
 @dp.message(F.successful_payment)
 async def successful_payment(message: Message):
     payload = message.successful_payment.invoice_payload
+    if payload == "donation":
+        stars = message.successful_payment.total_amount
+        await message.answer(
+            f"☕ *BTC Monitor* · Спасибо!\n\n"
+            f"Спасибо за поддержку ({stars} ⭐)! Ваши Stars пойдут на развитие проекта. ❤️",
+            parse_mode="Markdown",
+            reply_markup=menu_kb,
+        )
+        return
     if payload == "pro_monthly":
         await activate_pro(db, message.from_user.id, days=30)
         label = "PRO"

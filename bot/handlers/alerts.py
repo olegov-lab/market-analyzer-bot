@@ -2,7 +2,7 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from bot.state import db, dp, menu_kb, _ts
+from bot.state import db, dp, menu_kb, _tz_for, _ts_from_tz
 
 
 def _h(text: str) -> str:
@@ -35,6 +35,8 @@ async def subscribe(message: Message):
 @dp.message(Command(commands=["alerts"]))
 async def alerts(message: Message):
     uid = message.from_user.id
+    tz = await _tz_for(uid)
+    ts = _ts_from_tz(tz)
     subs = await db.get_user_subscriptions(uid)
     price_alerts_list = await db.get_user_price_alerts(uid)
 
@@ -44,13 +46,13 @@ async def alerts(message: Message):
             "❌ У вас нет активных подписок\n\n"
             "▪ /subscribe — алерты на RSI, MA Cross, Volume\n"
             "▪ /alert 100000 — ценовой сигнал\n\n"
-            f"{_ts()}",
+            f"{ts}",
             parse_mode="HTML",
             reply_markup=menu_kb,
         )
         return
 
-    parts = [f"🔔 <b>BTC Monitor</b> · Подписки", "", _ts(), ""]
+    parts = [f"🔔 <b>BTC Monitor</b> · Подписки", "", ts, ""]
 
     builder = InlineKeyboardBuilder()
     if subs:
