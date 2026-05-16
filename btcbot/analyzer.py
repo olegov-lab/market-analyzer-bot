@@ -321,11 +321,9 @@ class Analyzer:
         if not price:
             return None
 
-        result_4h, result_1w, result_long = await asyncio.gather(
-            self._predict_4h(symbol),
-            self._predict_1w(symbol),
-            self._predict_long(symbol),
-        )
+        result_4h = await self._predict_4h(symbol)
+        result_1w = await self._predict_1w(symbol)
+        result_long = await self._predict_long(symbol)
 
         if not result_4h:
             indicators = await self.compute_indicators(symbol)
@@ -700,14 +698,9 @@ class Analyzer:
         }
 
     async def _predict_1w(self, symbol: str) -> Optional[OnChainScore]:
-        since = datetime.now(timezone.utc) - timedelta(days=14)
-        rows = await self.db.get_all_onchain_metrics_since(since)
-        if not rows:
+        latest = await self.db.get_latest_onchain_metrics()
+        if not latest:
             return None
-
-        df = pd.DataFrame(rows, columns=["time", "metric_name", "value"])
-        df = df.sort_values("time")
-        latest = df.groupby("metric_name").last()["value"].to_dict()
 
         mvrv_z = _to_val(latest.get("mvrv_z_score"))
         sopr = _to_val(latest.get("sopr_realized"))
@@ -746,14 +739,8 @@ class Analyzer:
         )
 
     async def _predict_long(self, symbol: str) -> dict:
-        since = datetime.now(timezone.utc) - timedelta(days=14)
-        rows = await self.db.get_all_onchain_metrics_since(since)
-        metrics = {}
-        if rows:
-            df = pd.DataFrame(rows, columns=["time", "metric_name", "value"])
-            df = df.sort_values("time")
-            latest = df.groupby("metric_name").last()["value"].to_dict()
-            metrics = {k: _to_val(v) for k, v in latest.items()}
+        raw = await self.db.get_latest_onchain_metrics()
+        metrics = {k: _to_val(v) for k, v in raw.items()}
 
         mvrv_z = metrics.get("mvrv_z_score")
         mvrv_text = ""

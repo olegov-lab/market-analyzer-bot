@@ -513,6 +513,7 @@ class Database:
                 GROUP BY time_bucket('1 day', bucket), symbol
                 HAVING COUNT(*) >= 1
                 ORDER BY bucket ASC
+                LIMIT 2000
             """, symbol, since)
             if not rows:
                 rows = await conn.fetch("""
@@ -523,6 +524,7 @@ class Database:
                     WHERE symbol = $1 AND time >= $2
                     GROUP BY bucket, symbol
                     ORDER BY bucket ASC
+                    LIMIT 2000
                 """, symbol, since)
             return rows
 
@@ -590,9 +592,16 @@ class Database:
     ) -> list[asyncpg.Record]:
         async with self.pool.acquire() as conn:
             return await conn.fetch(
-                "SELECT time, metric_name, value FROM onchain_metrics WHERE time >= $1 ORDER BY time ASC",
+                "SELECT time, metric_name, value FROM onchain_metrics WHERE time >= $1 ORDER BY time ASC LIMIT 10000",
                 since,
             )
+
+    async def get_latest_onchain_metrics(self) -> dict[str, float]:
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT DISTINCT ON (metric_name) metric_name, value FROM onchain_metrics ORDER BY metric_name, time DESC"
+            )
+            return {r["metric_name"]: r["value"] for r in rows}
 
     async def add_price_alert(self, user_id: int, target_price: float, direction: str = "any") -> int:
         async with self.pool.acquire() as conn:

@@ -276,7 +276,7 @@
 
 **Работает:** AI-саммари, AI-чат (+ [CHART] маркеры), консенсус, график (4 таймфрейма), волатильность, Fear & Greed, торговый симулятор, подписки/алерты, уроки, новости с тональностью, Timothy Peterson AI, PRO-триал, Stars-оплата, TON-оплата, Коридор Меткалфа, Лиги/Турниры/Рефералы, голосовой ввод (Google STT + Whisper), проактивные алерты (7 триггеров), AI Daily Story
 
-**Docker:** 6 контейнеров (postgres, redis, collector, scheduler, api, bot). Сервер Fornex (89.127.215.15, Ubuntu 24.04, 1 vCPU, 2GB, 20GB SSD)
+**Docker:** 6 контейнеров (postgres, redis, collector, scheduler, api, bot). Сервер Fornex (89.127.215.15, Ubuntu 24.04, 2 vCPU, 3GB, 25GB SSD)
 
 **Данные:** 90 дней истории (CoinGecko seed), ~115K записей в prices, 726 on-chain метрик
 
@@ -284,7 +284,7 @@
 
 **Известные проблемы:**
 - `network_mode: host` для bot (iptables на уровне хостера блокирует Docker bridge outbound)
-- cloudflared quick tunnel меняет URL при перезапуске (нужен named tunnel с доменом)
+- postgres: многие idle-коннекты от контейнеров (можно уменьшить pool_size)
 - `chatMessages` массив без кепа (Mini App)
 - `chartDataCache` без инвалидации (Mini App)
 
@@ -442,3 +442,109 @@
 - `local-agent/` — копия исходных 25 JSON-агентов
 - `senior-dev.md` — переключён с `opencode-go/deepseek-v4-flash` на `ollama/deepseek-coder-v2:16b`
 - **Итог:** все 26 OpenCode агентов работают через локальный Ollama
+
+## Сессия 50: Стабилизация — Named Tunnel + Memory Limits + Мониторинг (15.05.2026)
+- **Проблема:** Cloudflare quick tunnel менял URL при перезапуске → Mini App недоступен (`ERR_NAME_NOT_RESOLVED`). После перезагрузки сервера старый URL `begin-english-guild-checked.trycloudflare.com` перестал резолвиться
+- **Named Tunnel:** через Cloudflare API создан постоянный туннель `btc-monitor` (ID: `fd1bf9f0-982d-42c0-9b91-e8c8652a761e`). DNS `btc.smartmarkettoday.com` → CNAME `tunnel_id.cfargotunnel.com`
+- **Systemd-сервис `cloudflared-named`:** автостарт + auto-restart с tunnel token. Старый `cloudflared-wrapper.sh` и quick tunnel отключены
+- **`docker-compose.yml`:** добавлены memory limits (Postgres 512M, остальные 256M) + reservations + log rotate (10MB×3)
+- **`scripts/health_check.py`:** мониторинг диска/памяти/контейнеров/API/туннеля, запись `data/health.json`, алерты при превышении порогов. Добавлен в cron (каждые 30 мин)
+- **Docker prune:** cron `0 3 * * 0` — еженедельная очистка
+- **OOMScoreAdjust:** Docker daemon приоритезирован при нехватке памяти
+- **journald лимит:** `SystemMaxUse=500M`
+- **Telegram Menu Button** обновлён на `https://btc.smartmarkettoday.com/miniapp`
+- **Итог:** URL больше никогда не меняется. Все 6 контейнеров с лимитами. Мониторинг каждые 30 мин.
+
+## Сессия 51: Три новые игры — Price Guess, Achievements, Mining (15.05.2026)
+- **🔮 Угадай цену BTC:** Ежедневный конкурс — пользователь вводит прогноз цены BTC. Раз в сутки (00:05 UTC) scheduler разрешает раунд: ближайший к цене выигрывает до 50⭐. Таблица `price_guesses` (user_id, guess_date, guess_price, deviation_pct, won, stars_won). Одна попытка в день. История прогнозов в Mini App
+- **🏅 Достижения/Ачивки:** 16 статических ачивок в 5 категориях (Трейдер, Предсказатель, Арена, Социальное, Майнер). Таблицы `achievements` + `user_achievements`. Автоматическая разблокировка при выполнении условий (сделки, P&L, прогнозы, рефералы, майнинг, лига). Секция на странице Арены + отдельная страница со всеми ачивками
+- **⛏ Майнинг-ферма:** Tap-to-earn на Redis. Клик раз в час → 3-8 базовых сатоши. Множитель стрика (+5%/день, до ×2) + множитель рефералов (+10%/реферал, до ×2). 1000 сатоши = 1⭐. Ачивки за 1000 и 10000 сатоши
+- **Backend:** `btcbot/db.py` — новые таблицы и методы. `btcbot/game.py` — PriceGuessEngine, AchievementEngine, MiningEngine. `backend/api.py` — 5 новых endpoints (`/guess/state`, `/guess`, `/achievements`, `/mining/state`, `/mining/click`). `btcbot/scheduler.py` — автораспределение призов в 00:05 UTC
+- **Frontend:** `miniapp/app.js` — 3 новые игры в лобби, страницы guess/mining/achievements, прогресс-бар ачивок в Арене
+- **Итог:** 3 новые игровые механики. В лобби теперь 4 игры: Торговля, Угадай цену, Майнинг, скоро больше 🚀
+
+## Сессия 52: Апгрейд сервера + OOM-стабилизация + Telegram-алерты (15.05.2026)
+- **Авария:** 502 Bad Gateway — OOM Killer убивал api/bot контейнеры, cloudflared не доставал до localhost:8000
+- **Diagnosis:** на сервере не было swap, cgroup memory limits (256MB) были слишком tight для Python-процессов
+- **Fix 1 — 2GB swap:** создан `/swapfile` 2GB, активирован, прописан в `/etc/fstab`
+- **Fix 2 — увеличены memory limits:** Postgres 512M→768M, Scheduler/API/Bot 256M→384M, Redis 256M→128M
+- **Fix 3 — OOMScoreAdjust:** postgres -500, redis -250, collector/scheduler/api/bot 100 (при нехватке памяти Postgres умрёт последним)
+- **Fix 4 — Telegram-алерты:** `health_check.py` теперь отправляет в Telegram @olegov_lab при OOM kill, падении памяти <20%, рестартах контейнеров, API/Tunnel down
+- **Fix 5 — .env auto-load:** `health_check.py` сам читает `.env`, работает из cron без export'ов
+- **Апгрейд сервера:** Fornex: 1 vCPU/2GB/20GB → 2 vCPU/3GB/25GB
+- **Итог:** сервер стабилен, 1923MB свободной RAM, load 0.78, 0 ошибок cloudflared
+
+## Сессия 53: Оптимизация и активация — pool_size, лимиты, рефералы, донаты (15.05.2026)
+- **P0 — pool_size asyncpg:** `min_size=2, max_size=10` → `min_size=1, max_size=3` (с 60 до 18 макс коннектов)
+- **P0 — FREE-лимиты убраны:** 3 сделки/день и 3 AI-вопроса/день больше не действуют (на время роста)
+- **P0 — Реферальная программа активирована:** `/start ref_123456` обрабатывает глубокие ссылки, создаёт реферал (+$5 бонус пригласившему). Добавлена команда `/referral` со статистикой и ссылкой
+- **P2 — Donate:** `/donate` — отправляет инвойс на 10 ⭐, сообщение благодарности
+- **Удалены неиспользуемые импорты** в game.py и ask.py
+
+## Сессия 54: Биткоин-рулетка + исправления (15.05.2026)
+- **🎰 Биткоин-рулетка:** ставка 1–10 ⭐, кулдаун 3 сек. Шансы: x0 (40%), x1.5 (30%), x2 (20%), x3 (9%), 💎x5 (1%). Реализовано:
+  - `btcbot/game.py` — `roulette_spin()`: логика вращения, мультиплееры, запись в БД
+  - `btcbot/db.py` — `add_stars()`: дебет/кредит ⭐
+  - `backend/api.py` — `POST /miniapp/game/roulette` + `GET /miniapp/game/roulette/state`
+  - `miniapp/app.js` — UI рулетки: выбор ставки, анимация, история 20 спинов, правила под игрой
+  - `bot/handlers/info.py` — `/referral` команда
+  - `bot/handlers/subscribe.py` — `/donate` команда
+  - `bot/handlers/game.py` — стрик майнинга в `/portfolio`
+  - `tests/test_game_features.py` — 32 теста на все игровые механики
+- **Playability test:** 19/19 тестов пройдены на сервере
+- **AI агенты:** опрошены Senior Dev, Business Strategist, Finance Analyst, SMM/Growth. Рекомендации отсортированы по приоритетам
+- **P0 fix — HTTP 500 roulette:** `JSONResponse is not defined` — импортирован `JSONResponse` из `fastapi.responses`, endpoints переписаны под единый стиль (dict + HTTPException)
+- **UI fix:** правила рулетки переписаны человеческим языком под игрой в Mini App
+- **FREE-лимиты убраны:** 3 сделки/день, 3 AI-вопроса/день больше не действуют (до 100+ DAU)
+
+## Сессия 55: Авто-seed данных + фикс /start + /timezone + попытка редизайна (15.05.2026)
+- **P0 — Утеря seed-данных:** после пересоздания контейнеров `seed_history.py` не запускался автоматически → `prices` содержала лишь 1.5 часа данных. Индикаторы и прогнозы не работали
+- **Auto-seed:** в `btcbot/scheduler.py` добавлен `_auto_seed()` — при старте scheduler проверяет наличие seed-данных (>100 записей), если нет — загружает 90 дней из CoinGecko и обновляет continuous aggregates (`candles_1m`, `candles_4h`)
+- **Фикс `/start`:**
+  - Убрано "с 25 агентами" из приветствия
+  - HTML-теги в заголовках новостей удаляются (`re.sub(r'<[^>]+>', '', title)`)
+  - Добавлены пропущенные команды: `/predict`, `/learn`, `/subscribe`, `/donate`, `/alerts`, `/timezone`
+- **Попытка редизайна нижнего меню:** новый iOS-стиль (5 кнопок, градиентный круг для AI, padding 0) — отклонён, возвращено орбитальное меню
+- **Команда `/timezone`:**
+  - Добавлено поле `timezone` в таблицу `users` (default `'UTC'::text`)
+  - Методы `get_user_timezone` / `set_user_timezone` в `db.py`
+  - Создан `bot/handlers/timezone.py` — 15 предустановленных часовых поясов (все РФ + Лондон/Берлин/Дубай/Нью-Йорк), InlineKeyboard, выбор по callback `tz_*`
+  - В `bot/state.py` добавлены `_ts_for(user_id)` и `_greeting_for(user_id)` — асинхронные версии с учётом timezone пользователя (с кешированием в RAM)
+  - `/start` использует `_greeting_for` / `_ts_for` для персонализированного времени
+  - **Все команды переведены на user-timezone:** `_ts()` заменён на `_tz_for(uid)` + `_ts_from_tz(tz)` в `btc.py` (3 команды), `ask.py` (2), `news.py`, `alerts.py`, `price_alerts.py` (2). Итого ~25 вызовов заменены. `_ts()` сохранён только в `main.py` для daily story (рассылка всем)
+  - TZ=Europe/Moscow оставлен как fallback для всех остальных команд и daily story
+- **P0 fix — `_rsi_bar`:**
+  - Функция визуализации RSI (цветная шкала 10 блоков) отсутствовала в `state.py` после правок
+  - Восстановлена по git history: `_rsi_bar(rsi) → "🟢 🟢🟢🟢░░░░░ 30.0"` с цветом (🟢 < 40, 🟡 40-60, 🔴 > 60)
+
+## Сессия 56: AI фикс + мини-игры в Mini App + меню команд + OOM-фильтр (15.05.2026)
+- **P0 — AI не отвечал:** OpenRouter модель `minimax/minimax-m2.5:free` отдавала 429 rate limited. Переключён приоритет: сначала OpenCode Go (qwen3.6-plus, ~7с ответ), OpenRouter — fallback. Таймауты увеличены с 40с → 120с
+- **P1 — `/timezone` не работал из-за кеша:** `_ts_tz_cache` запоминал старый пояс и не сбрасывался при смене. Добавлен `_clear_tz_cache(uid)` в `timezone_set`
+- **P1 — контейнеры не стартовали:** `timezone` из `from datetime import timezone` перезаписывался нашим `bot.handlers.timezone` в `main.py`. Переименован в `dt_timezone`
+- **Команды в меню:** `bot.set_my_commands()` добавлен в `on_startup` — 13 команд (`/start`, `/btc`, `/predict`, `/ask`, `/portfolio`, `/news`, `/learn`, `/subscribe`, `/alerts`, `/timezone`, `/referral`, `/donate`, `/help`) появляются при вводе `/`
+- **Мини-игры в Mini App:** Добавлены фронтенды для 🔮 Угадай цену (`renderGuessGame`), 🎰 Рулетка (`renderRouletteGame`), ⛏️ Майнинг (`renderMiningGame`). Исправлен баг `null deviation_pct` в истории угадайки. Рулетка переделана на кнопки-звёзды (1⭐–10⭐) вместо инпута
+- **Правила игр:** Добавлены 📋 Правила в 🔮 Угадай цену (<0.5% отклонения → +1⭐) и 🎰 Рулетка (множители, кулдаун). Поле ввода показывается всегда (можно изменить прогноз)
+- **CHART-кнопки:** Исправлено расположение — каждая кнопка на отдельной строке вместо одного ряда (текст не обрезается `...`)
+- **Порядок кнопок:** `🧠 AI Чат` и `📊 Аналитика` поменяны местами (AI Чат теперь первый)
+- **OOM-алерты:** `health_check.py` теперь фильтрует OOM-события — игнорирует не наши процессы (MySQL и др.), алерты только по bot-контейнерам
+- **AI-запросы:** Добавлено логирование в `agents.py` — `logger.info/warning` при успехе/ошибке OpenCode Go и OpenRouter
+
+## Сессия 57: HistoryDev.md + рефакторинг (16.05.2026)
+- **Чтение HistoryDev.md:** Пользователь напомнил о существовании файла истории разработки, попросил добавить запись о текущей сессии
+- **Рефакторинг `state.py` (P0):**
+  - Метод `_rsi_bar(rsi)` вынесен на уровень модуля (standalone-функция), используется в `btc_msg_rsi` и `_rsi_btc_msg` без дублирования
+  - `update_rsi_cache(uid)` — вынесено дублирование (сохранение RSI на 5 мин) в отдельный публичный метод
+  - `_rsi_cache`, `_last_rsi_update` — сброс кеша раз в 5 минут через `update_rsi_cache`
+  - `_rsi_btc_msg` — удалена устаревшая def-функция (заменена на `btc_msg_rsi` внутри `BTCSignalMessage`)
+- **Рефакторинг `handlers/btc.py`:**
+  - Вызовы `state.update_rsi_cache(uid)` заменены на `state.update_rsi_cache(uid)` (единый метод)
+  - `_rsi_bar(user_id)` устранён везде
+  - Импорт `_rsi_bar`, `_rsi_cache` удалён там, где не нужен
+- **Чистота импортов:** Удалены неиспользуемые импорты в `state.py`, `handlers/btc.py`
+
+**Отложено:**
+- Пост на VC.ru / Pikabu о проекте
+- Партнёрства с крипто-каналами
+- Telegram Ads (нужен бюджет)
+- Публикация на GitHub
+- pre-commit хуки (ruff)

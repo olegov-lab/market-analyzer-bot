@@ -859,6 +859,9 @@ body {
 .game-trade:last-child { border-bottom: none; }
 .value.up { color: var(--green); }
 .value.down { color: var(--red); }
+.star-btn { -webkit-tap-highlight-color: transparent; }
+.star-btn:hover { background: var(--bg-card-hover, #222) !important; }
+.star-btn:active { transform: scale(0.9) !important; }
 
 /* ─── Game Lobby ─── */
 .game-lobby-card {
