@@ -139,7 +139,7 @@ function navigate(page, sub) {
   sub = sub || '';
   const map = {
     'indicators': sub ? '#indicators/' + sub : '#indicators/price',
-    'miniapp': sub ? '#miniapp/' + sub : '#miniapp/lessons',
+    'miniapp': sub ? '#miniapp/' + sub : '#miniapp/games',
     'news': sub ? '#news/' + sub : '#news/general',
     'upgrade': '#upgrade',
   };
@@ -150,7 +150,7 @@ document.querySelectorAll('.orbital-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     const page = btn.dataset.page;
     if (page === 'indicators') navigate('indicators', 'price');
-    else if (page === 'miniapp') navigate('miniapp', 'lessons');
+    else if (page === 'miniapp') navigate('miniapp', 'games');
     else if (page === 'news') navigate('news', 'general');
     else navigate(page);
   });
@@ -1116,6 +1116,9 @@ function renderMiniAppPage(sub, param) {
   `);
   if (sub === 'games') {
     if (param === 'trading') renderTradingGame();
+    else if (param === 'guess') renderGuessGame();
+    else if (param === 'roulette') renderRouletteGame();
+    else if (param === 'mining') renderMiningGame();
     else renderGameLobby();
   }
   else if (sub === 'arena') renderArena();
@@ -1154,11 +1157,14 @@ async function renderTimothyNews() {
 // ─── Games Page ─────────────────────────────────────────────────────
 const GAMES = [
   { slug: 'trading', icon: '🎯', title: 'Торговый симулятор', desc: 'Виртуальная торговля BTC. Стартовый баланс $10,000. Покупайте и продавайте по реальной цене.', btn: '▶ Играть' },
+  { slug: 'guess', icon: '🔮', title: 'Угадай цену BTC', desc: 'Предскажи цену закрытия BTC на сегодня. Совпадёшь — получишь ⭐!', btn: '🔮 Играть' },
+  { slug: 'roulette', icon: '🎰', title: 'Биткоин-рулетка', desc: 'Ставь ⭐ и крути! Множители до x5. Рискни и умножь.', btn: '🎰 Крутить' },
+  { slug: 'mining', icon: '⛏️', title: 'Майнинг-ферма', desc: 'Тапай каждый час, добывай сатоши, копи на ⭐. Streak до x2!', btn: '⛏️ Копать' },
 ];
 
 function renderGameLobby() {
   tgBackButton('show');
-  tgBackButton('onClick', () => { window.location.hash = '#miniapp/lessons'; });
+  tgBackButton('onClick', () => { window.location.hash = '#miniapp/games'; });
   stopAllPolls();
   let html = '';
   for (const g of GAMES) {
@@ -1248,6 +1254,174 @@ async function renderTradingGame() {
           tgShowAlert(emoji + ' ' + (res.pnl >= 0 ? '+' : '') + '$' + fmtPrice(res.pnl) + ' (' + res.pnl_pct + '%)');
           renderTradingGame();
         } catch (e) { tgShowAlert(e.message); btnSell.disabled = false; btnSell.textContent = 'Продать BTC'; }
+      });
+    }
+  } catch (e) {
+    renderSub('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + escapeHtml(e.message) + '</div></div>');
+  }
+}
+
+// ─── Guess Game ─────────────────────────────────────────────────────
+async function renderGuessGame() {
+  tgBackButton('show');
+  tgBackButton('onClick', () => { window.location.hash = '#miniapp/games'; });
+  stopAllPolls();
+  renderSub('<div class="skeleton skeleton-block"></div>');
+  try {
+    const state = await apiCall('/miniapp/game/guess/state');
+    const price = state.btc_price;
+    let html = '<div class="game-hero"><div class="game-hero-value">🔮 Угадай цену</div><div class="game-hero-sub">BTC/USD: $' + (price ? price.toLocaleString('en-US') : '—') + '</div></div>';
+
+    html += '<div class="card" style="text-align:center;"><div style="font-size:14px;color:var(--hint);">Твои звёзды</div><div style="font-size:32px;font-weight:700;">' + state.stars + ' ⭐</div></div>';
+
+    html += '<div class="card" style="font-size:12px;line-height:1.8;"><div class="card-title">📋 Правила</div>▪ Каждый день ты можешь 1 раз предсказать цену BTC<br>▪ Цена фиксируется в 00:00 UTC<br>▪ Если твой прогноз отличается от реальной цены менее чем на 0.5% — ты выиграл!<br>▪ Приз: <b>+1 ⭐</b> за каждую победу<br>▪ Максимум 1 попытка в день</div>';
+
+    if (price) {
+      var curGuess = state.today_guess ? state.today_guess.guess_price.toLocaleString('en-US') : '';
+      var label = state.today_guess ? 'Изменить прогноз' : 'Ваш прогноз на сегодня';
+      html += '<div class="card"><div class="card-title">' + label + '</div>';
+      html += '<div style="display:flex;gap:8px;margin-top:12px;">';
+      html += '<input type="number" id="guess-input" class="game-input" placeholder="Цена BTC в $" min="1" step="100" value="' + curGuess.replace(/,/g,'') + '">';
+      html += '<button class="game-btn buy" id="btn-guess">🔮 Отправить</button>';
+      html += '</div></div>';
+    } else {
+      html += '<div class="card" style="text-align:center;padding:20px;color:var(--hint);">⏳ Цена BTC загружается...</div>';
+    }
+
+    if (state.history && state.history.length > 0) {
+      html += '<div class="card"><div class="card-title">📜 История</div>';
+      for (const h of state.history) {
+        const cls = h.won ? 'up' : 'down';
+        const icon = h.won ? '✅' : '❌';
+        html += '<div class="game-trade"><span>' + icon + ' $' + h.guess_price.toLocaleString('en-US') + '</span><span class="value ' + cls + '">' + (h.won ? '+' + h.stars_won + '⭐' : (h.deviation_pct != null ? h.deviation_pct.toFixed(1) + '%' : '⏳')) + '</span></div>';
+      }
+      html += '</div>';
+    }
+    renderSub(html);
+
+    const btnGuess = document.getElementById('btn-guess');
+    if (btnGuess) {
+      btnGuess.addEventListener('click', async () => {
+        haptic('heavy');
+        const val = parseFloat(document.getElementById('guess-input').value);
+        if (!val || val <= 0) { tgShowAlert('Введите корректную цену'); return; }
+        btnGuess.disabled = true; btnGuess.textContent = '...';
+        try {
+          await apiCall('/miniapp/game/guess', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({guess_price: val}) });
+          tgShowAlert('✅ Прогноз принят! Результат завтра в 00:05 UTC');
+          renderGuessGame();
+        } catch (e) { tgShowAlert(e.message); btnGuess.disabled = false; btnGuess.textContent = '🔮 Отправить'; }
+      });
+    }
+  } catch (e) {
+    renderSub('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + escapeHtml(e.message) + '</div></div>');
+  }
+}
+
+// ─── Roulette Game ──────────────────────────────────────────────────
+async function renderRouletteGame() {
+  tgBackButton('show');
+  tgBackButton('onClick', () => { window.location.hash = '#miniapp/games'; });
+  stopAllPolls();
+  renderSub('<div class="skeleton skeleton-block"></div>');
+  try {
+    const state = await apiCall('/miniapp/game/roulette/state');
+    let html = '<div class="game-hero"><div class="game-hero-value">🎰 Биткоин-рулетка</div><div class="game-hero-sub">⭐ Баланс: ' + state.stars + '</div></div>';
+
+    html += '<div class="card"><div class="card-title">📋 Правила</div>';
+    html += '<div style="font-size:12px;line-height:1.8;">▪ Выбери ставку 1–10 ⭐ нажатием на звезду<br>▪ ⚡ Кулдаун 3 секунды между спинами<br>▪ Множители: x0 (40%), x1.5 (30%), x2 (20%), x3 (9%), x5 (1%)</div></div>';
+
+    html += '<div class="card"><div class="card-title">🎰 Сделать ставку</div>';
+    html += '<div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:8px;" id="star-bets">';
+    for (let i = 1; i <= 10; i++) {
+      html += '<div class="star-btn" data-bet="' + i + '" style="width:44px;height:44px;border-radius:50%;background:var(--bg-card);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:18px;cursor:pointer;transition:all 0.1s;">' + i + '⭐</div>';
+    }
+    html += '</div><div id="spin-result" style="text-align:center;margin-top:12px;min-height:24px;font-size:14px;"></div></div>';
+
+    if (state.history && state.history.length > 0) {
+      html += '<div class="card"><div class="card-title">📜 История (последние 10)</div>';
+      for (const h of state.history) {
+        const icon = h.net > 0 ? '🟢' : '🔴';
+        const sign = h.net >= 0 ? '+' : '';
+        html += '<div class="game-trade"><span>' + icon + ' ⭐' + h.bet + ' ×' + h.multiplier + '</span><span class="value ' + (h.net >= 0 ? 'up' : 'down') + '">' + sign + h.net + '⭐</span></div>';
+      }
+      html += '</div>';
+    }
+
+    renderSub(html);
+
+    document.querySelectorAll('.star-btn').forEach(function(el) {
+      el.addEventListener('click', async function() {
+        if (el._loading) return;
+        el._loading = true;
+        el.style.transform = 'scale(1.2)';
+        haptic('heavy');
+        const bet = parseInt(el.dataset.bet);
+        const resultDiv = document.getElementById('spin-result');
+        resultDiv.textContent = '⏳ Крутим...';
+        try {
+          const res = await apiCall('/miniapp/game/roulette', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({bet: bet}) });
+          const r = res.result;
+          if (r.won) {
+            resultDiv.innerHTML = r.emoji + ' ×' + r.multiplier + '! <b>+' + r.net + ' ⭐</b>';
+            haptic('success');
+          } else {
+            resultDiv.innerHTML = '😢 Проигрыш: -' + r.bet + ' ⭐';
+            haptic('warning');
+          }
+          setTimeout(function() { renderRouletteGame(); }, 1500);
+        } catch (e) {
+          resultDiv.textContent = '❌ ' + e.message;
+          el._loading = false;
+          el.style.transform = '';
+        }
+      });
+    });
+  } catch (e) {
+    renderSub('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + escapeHtml(e.message) + '</div></div>');
+  }
+}
+
+// ─── Mining Game ────────────────────────────────────────────────────
+async function renderMiningGame() {
+  tgBackButton('show');
+  tgBackButton('onClick', () => { window.location.hash = '#miniapp/games'; });
+  stopAllPolls();
+  renderSub('<div class="skeleton skeleton-block"></div>');
+  try {
+    const state = await apiCall('/miniapp/game/mining/state');
+    const canMine = state.can_mine;
+    let html = '<div class="game-hero"><div class="game-hero-value">⛏️ Майнинг-ферма</div><div class="game-hero-sub">' + state.total_sats + ' сатоши · ' + state.stars + ' ⭐</div></div>';
+
+    html += '<div class="card"><div class="card-title">Добыча</div>';
+    html += '<div class="game-metrics">';
+    html += '<div class="game-metric"><span class="label">Сатоши</span><span class="value">' + state.total_sats + '</span></div>';
+    html += '<div class="game-metric"><span class="label">Streak</span><span class="value">' + state.streak + '</span></div>';
+    html += '<div class="game-metric"><span class="label">Множитель</span><span class="value">×' + state.streak_mult + '</span></div>';
+    html += '<div class="game-metric"><span class="label">Рефералы</span><span class="value">×' + state.ref_mult + '</span></div>';
+    html += '</div>';
+
+    if (canMine) {
+      html += '<button class="game-btn buy" id="btn-mine" style="width:100%;">⛏️ Копать!</button>';
+    } else {
+      html += '<div style="text-align:center;padding:16px;color:var(--orange);font-size:13px;">⏳ Кулдаун: ' + state.cooldown_min + ' мин</div>';
+    }
+    html += '</div>';
+
+    html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;">⚡ 1 клик/час · Streak +5% (макс ×2) · Рефералы +10% каждый · 1000 сатоши = 1 ⭐</div>';
+    renderSub(html);
+
+    const btnMine = document.getElementById('btn-mine');
+    if (btnMine) {
+      btnMine.addEventListener('click', async () => {
+        haptic('heavy');
+        btnMine.disabled = true; btnMine.textContent = '⏳';
+        try {
+          const res = await apiCall('/miniapp/game/mining/click', { method: 'POST' });
+          tgShowAlert('⛏️ +' + res.earned + ' сатоши! Streak: ' + res.streak + ' (×' + res.streak_mult + ')');
+          haptic('success');
+          renderMiningGame();
+        } catch (e) { tgShowAlert(e.message); btnMine.disabled = false; btnMine.textContent = '⛏️ Копать!'; }
       });
     }
   } catch (e) {
