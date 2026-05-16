@@ -83,7 +83,7 @@ class TestRunAskTask:
             assert data["result"] == "Ответ Market-Brain"
 
     @pytest.mark.asyncio
-    async def test_agent_error_sets_error_status(self):
+    async def test_agent_error_uses_fallback(self):
         redis_mock = AsyncMock()
         redis_mock.setex = AsyncMock()
         db_mock = AsyncMock()
@@ -91,8 +91,10 @@ class TestRunAskTask:
 
         with patch("backend.api.redis_client", redis_mock), \
              patch("backend.api.db", db_mock), \
-             patch("backend.api.ask_agent") as mock_ask:
+             patch("backend.api.ask_agent") as mock_ask, \
+             patch("backend.api.analyzer") as mock_analyzer:
             mock_ask.return_value = "[Agent error: timeout]"
+            mock_analyzer.compute_consensus = AsyncMock(return_value={"bullish_pct": 65, "signal": "bullish"})
             redis_mock.get = AsyncMock(return_value=None)
 
             from backend.api import _run_ask_task
@@ -101,11 +103,11 @@ class TestRunAskTask:
             call_args = redis_mock.setex.call_args_list[-1]
             args = call_args[0]
             data = json.loads(args[2])
-            assert data["status"] == "error"
-            assert "unavailable" in data["result"]
+            assert data["status"] == "done"
+            assert data["result"] is not None
 
     @pytest.mark.asyncio
-    async def test_agent_returns_none_sets_error(self):
+    async def test_agent_returns_none_uses_fallback(self):
         redis_mock = AsyncMock()
         redis_mock.setex = AsyncMock()
         db_mock = AsyncMock()
@@ -113,8 +115,10 @@ class TestRunAskTask:
 
         with patch("backend.api.redis_client", redis_mock), \
              patch("backend.api.db", db_mock), \
-             patch("backend.api.ask_agent") as mock_ask:
+             patch("backend.api.ask_agent") as mock_ask, \
+             patch("backend.api.analyzer") as mock_analyzer:
             mock_ask.return_value = None
+            mock_analyzer.compute_consensus = AsyncMock(return_value={"bullish_pct": 50, "signal": "neutral"})
             redis_mock.get = AsyncMock(return_value=None)
 
             from backend.api import _run_ask_task
@@ -123,7 +127,7 @@ class TestRunAskTask:
             call_args = redis_mock.setex.call_args_list[-1]
             args = call_args[0]
             data = json.loads(args[2])
-            assert data["status"] == "error"
+            assert data["status"] == "done"
 
     @pytest.mark.asyncio
     async def test_db_price_none_does_not_crash(self):
