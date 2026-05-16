@@ -111,7 +111,15 @@ class AlertManager:
             msg = f"Volume spike: {curr_vol:.0f} ({threshold}× avg {avg_vol:.0f})"
             await self._send_alert(user["user_id"], "volume_spike", price, msg)
 
+    def _cleanup_cooldowns(self) -> None:
+        now = datetime.now(timezone.utc)
+        expired = [k for k, v in self._last_sent.items() if now - v >= timedelta(minutes=COOLDOWN_MINUTES)]
+        for k in expired:
+            del self._last_sent[k]
+
     async def _send_alert(self, user_id: int, alert_type: str, price: float, message: str) -> None:
+        if len(self._last_sent) > 10000:
+            self._cleanup_cooldowns()
         if self._is_on_cooldown(user_id, alert_type):
             logger.debug("Alert {} for user {} on cooldown", alert_type, user_id)
             return

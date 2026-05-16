@@ -8,7 +8,7 @@ from typing import Optional
 import redis.asyncio as aioredis
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from loguru import logger
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -650,9 +650,7 @@ async def _fallback_analysis(question: str) -> str:
         pass
 
     try:
-        from btcbot.analyzer import Analyzer
-        a = Analyzer(db, redis_client)
-        consensus = await a.compute_consensus()
+        consensus = await analyzer.compute_consensus()
         if consensus:
             bp = consensus.get("bullish_pct", 50)
             sig = "🟢 бычий" if bp > 60 else ("🔴 медвежий" if bp < 40 else "⚪️ нейтральный")
@@ -831,6 +829,7 @@ async def game_buy(request: Request):
     usdt_amount = float(body.get("usdt_amount", 0))
     try:
         result = await game_engine.buy(user_id, usdt_amount)
+        asyncio.create_task(_check_trade_achievements(user_id))
         return result
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -842,6 +841,7 @@ async def game_sell(request: Request):
     user_id = await _get_user_id(request)
     try:
         result = await game_engine.sell(user_id)
+        asyncio.create_task(_check_trade_achievements(user_id))
         return result
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -907,6 +907,104 @@ async def referral_create(request: Request):
     if not referred_id:
         raise HTTPException(400, "referred_id required")
     return await game_engine.add_referral(user_id, referred_id)
+
+
+# ─── Price Guess ─────────────────────────────────────────────────────
+
+@app.get("/miniapp/game/guess/state")
+@limiter.limit("30/minute")
+async def guess_state(request: Request):
+    user_id = await _get_user_id(request)
+    return await game_engine.get_guess_state(user_id)
+
+
+@app.post("/miniapp/game/guess")
+@limiter.limit("10/minute")
+async def guess_submit(request: Request):
+    user_id = await _get_user_id(request)
+    body = await request.json()
+    guess_price = float(body.get("guess_price", 0))
+    try:
+        result = await game_engine.submit_guess(user_id, guess_price)
+        asyncio.create_task(_check_guess_achievements(user_id, False))
+        return result
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+async def _check_guess_achievements(user_id: int, won: bool = False):
+    try:
+        await game_engine.check_guess_achievements(user_id, won)
+    except Exception:
+        pass
+
+
+# ─── Achievements ────────────────────────────────────────────────────
+
+@app.get("/miniapp/game/achievements")
+@limiter.limit("30/minute")
+async def achievements_get(request: Request):
+    user_id = await _get_user_id(request)
+    return await game_engine.get_achievements_state(user_id)
+
+
+async def _check_trade_achievements(user_id: int):
+    try:
+        new = await game_engine.check_trade_achievements(user_id)
+        if new:
+            logger.info(f"User {user_id} unlocked achievements: {[a['name'] for a in new]}")
+    except Exception as e:
+        logger.warning(f"Achievement check failed: {e}")
+
+
+# ─── Mining (Tap-to-Earn) ────────────────────────────────────────────
+
+@app.get("/miniapp/game/mining/state")
+@limiter.limit("30/minute")
+async def mining_state(request: Request):
+    user_id = await _get_user_id(request)
+    return await game_engine.get_mining_state(user_id, redis_client)
+
+
+@app.post("/miniapp/game/mining/click")
+@limiter.limit("10/minute")
+async def mining_click(request: Request):
+    user_id = await _get_user_id(request)
+    try:
+        result = await game_engine.mine_click(user_id, redis_client)
+        asyncio.create_task(_check_mining_achievements(user_id, result["total_sats"]))
+        return result
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+async def _check_mining_achievements(user_id: int, total_sats: int):
+    try:
+        await game_engine.check_mining_achievements(user_id, total_sats)
+    except Exception:
+        pass
+
+
+@app.post("/miniapp/game/roulette")
+async def roulette(request: Request):
+    user_id = await _get_user_id(request)
+    body = await request.json()
+    bet = int(body.get("bet", 1))
+    try:
+        result = await game_engine.roulette_spin(user_id, bet, redis_client)
+        return {"status": "ok", "result": result}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/miniapp/game/roulette/state")
+async def roulette_state(request: Request):
+    user_id = await _get_user_id(request)
+    user = await game_engine.db.get_or_create_game_user(user_id)
+    history_key = f"roulette:history:{user_id}"
+    raw = await redis_client.get(history_key)
+    history = json.loads(raw) if raw else []
+    return {"stars": user.get("stars", 0), "history": list(reversed(history[-10:]))}
 
 
 # ─── Static files for Mini App ─────────────────────────────────────
