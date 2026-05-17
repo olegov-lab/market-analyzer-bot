@@ -29,12 +29,14 @@ async def _estimate_ondays(db) -> float:
 
 @dp.message(or_f(Command(commands=["btc"]), F.text == "📊 Аналитика"))
 async def btc(message: Message):
+    thinking = await message.answer("🧠 Анализирую рынок... ⏳")
     tz = await _tz_for(message.from_user.id)
     ts = _ts_from_tz(tz)
     indicators = await analyzer.compute_indicators()
     price = await db.get_latest_price("BTCUSD")
 
     if not price:
+        await thinking.delete()
         await message.answer(f"❌ Нет данных о цене\n\n{ts}", parse_mode="Markdown", reply_markup=menu_kb)
         return
 
@@ -155,6 +157,7 @@ async def btc(message: Message):
 
     lines.append("")
     lines.append("♻️ Обновление: реальное время")
+    await thinking.delete()
     await message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=menu_kb)
 
 
