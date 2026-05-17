@@ -128,7 +128,7 @@ services:
         condition: service_healthy
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/btcbot
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/btcbot
       REDIS_URL: redis://redis:6379/0
       DB_POOL_MIN: 2
       DB_POOL_MAX: 10
@@ -167,7 +167,7 @@ services:
         condition: service_healthy
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/btcbot
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/btcbot
       REDIS_URL: redis://redis:6379/0
       DB_POOL_MIN: 1
       DB_POOL_MAX: 5
