@@ -1704,7 +1704,8 @@ async function renderUpgradePage() {
       try { walletData = await apiCall('/crypto/wallet/status'); } catch(_) {}
       if (walletData.linked) {
         var shortAddr = walletData.wallet_address.substring(0, 8) + '...' + walletData.wallet_address.slice(-6);
-        html += '<div class="connect-wallet-wrap"><span class="wallet-chip" style="flex:1;"><span style="width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block;"></span> ' + shortAddr + '</span><button class="upgrade-btn" data-action="unlinkWallet" style="flex-shrink:0;width:auto;padding:10px 14px;">🔌 Отключить</button></div>';
+        html += '<div class="wallet-chip"><span style="width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block;"></span> ' + shortAddr + '</div>';
+        html += '<button class="upgrade-btn" data-action="unlinkWallet">🔌 Отключить</button>';
         window._tonWallet = walletData.wallet_address;
       } else {
         html += '<div class="connect-wallet-wrap"><input class="wallet-input" id="ton-wallet-input" placeholder="Вставьте адрес TON кошелька..."><button class="upgrade-btn" data-action="linkWallet">🔌 Подключить</button></div>';
