@@ -13,8 +13,8 @@ class Settings(BaseSettings):
     opencode_go_endpoint: str = "https://opencode.ai/zen/go/v1"
     miniapp_url: str = "https://your-server.com/miniapp"
     ton_recipient_wallet: str = ""
-    ton_pro_price_ton: float = 2.0
-    ton_pro_plus_price_ton: float = 5.0
+    ton_pro_price_ton: float = 0.5
+    ton_pro_plus_price_ton: float = 1.0
     toncenter_api_url: str = "https://toncenter.com/api/v3"
     openai_api_key: str = ""
     openrouter_api_key: str = ""
