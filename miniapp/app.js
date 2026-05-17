@@ -1725,14 +1725,14 @@ async function renderUpgradePage() {
 
     html += '<div class="upgrade-card' + (isPro ? ' current' : '') + '">';
     html += '<div class="upgrade-card-header pro">PRO</div>';
-    html += '<div class="upgrade-card-price">' + (paymentMethod === 'ton' ? '2 TON' : '50 ⭐') + '<span style="font-size:11px;font-weight:400;">/мес</span></div>';
+    html += '<div class="upgrade-card-price">' + (paymentMethod === 'ton' ? '0.5 TON' : '50 ⭐') + '<span style="font-size:11px;font-weight:400;">/мес</span></div>';
     html += '<ul class="upgrade-features">';
     html += '<li>✅ Всё из FREE</li><li>🤖 AI без лимитов</li><li>📈 Сделки без лимитов</li><li>🔔 PRO-алерты</li><li>🏆 Полный лидерборд</li>';
     html += '</ul>';
     if (isPro) html += '<div class="upgrade-current-badge">Активна</div>';
     else if (!isProPlus) {
       if (paymentMethod === 'ton') {
-        html += '<button class="upgrade-btn" data-action="cryptoPay" data-tier="pro">Купить за 2 TON</button>';
+        html += '<button class="upgrade-btn" data-action="cryptoPay" data-tier="pro">Купить за 0.5 TON</button>';
       } else {
         html += '<button class="upgrade-btn" data-action="subscribe" data-tier="pro">Подписаться за 50 ⭐</button>';
       }
@@ -1741,14 +1741,14 @@ async function renderUpgradePage() {
 
     html += '<div class="upgrade-card' + (isProPlus ? ' current' : '') + '">';
     html += '<div class="upgrade-card-header pro-plus">PRO+</div>';
-    html += '<div class="upgrade-card-price">' + (paymentMethod === 'ton' ? '5 TON' : '100 ⭐') + '<span style="font-size:11px;font-weight:400;">/мес</span></div>';
+    html += '<div class="upgrade-card-price">' + (paymentMethod === 'ton' ? '1 TON' : '100 ⭐') + '<span style="font-size:11px;font-weight:400;">/мес</span></div>';
     html += '<ul class="upgrade-features">';
     html += '<li>✅ Всё из PRO</li><li>🎤 Голосовой ввод</li><li>⚡ Проактивные алерты</li><li>🎯 Confidence Score ML</li><li>📊 Персональный дашборд</li>';
     html += '</ul>';
     if (isProPlus) html += '<div class="upgrade-current-badge">Активна</div>';
     else {
       if (paymentMethod === 'ton') {
-        html += '<button class="upgrade-btn plus" data-action="cryptoPay" data-tier="pro_plus">Купить за 5 TON</button>';
+        html += '<button class="upgrade-btn plus" data-action="cryptoPay" data-tier="pro_plus">Купить за 1 TON</button>';
       } else {
         html += '<button class="upgrade-btn plus" data-action="subscribe" data-tier="pro_plus">Подписаться за 100 ⭐</button>';
       }
