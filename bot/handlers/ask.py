@@ -4,7 +4,7 @@ import time
 
 from aiogram import F
 from aiogram.filters import Command, or_f
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo
+from aiogram.types import Message
 from loguru import logger
 
 from backend.agents import ask_agent
@@ -86,18 +86,11 @@ def _rule_based_analysis(price: float | None, ind: dict | None, fng: dict | None
     return "\n".join(parts)
 
 
-def _parse_chart_markers(text: str) -> tuple[str, list[InlineKeyboardButton]]:
-    buttons = []
+def _parse_chart_markers(text: str) -> str:
     def replacer(m):
         tf, ind = m.group(1), m.group(2)
-        url = f"{settings.miniapp_url}#indicators/chart/{tf}/{ind}"
-        buttons.append(InlineKeyboardButton(
-            text=f"📊 {tf}/{ind}",
-            web_app=WebAppInfo(url=url),
-        ))
         return f"📊 {tf}/{ind}"
-    clean = CHART_RE.sub(replacer, text)
-    return clean, buttons
+    return CHART_RE.sub(replacer, text)
 
 
 @dp.message(or_f(Command(commands=["ask"]), F.text == "🧠 AI Чат"))
@@ -202,15 +195,10 @@ async def ask(message: Message):
     if len(response) > 4000:
         response = response[:4000] + "..."
 
-    clean_response, chart_buttons = _parse_chart_markers(response)
-    reply_markup = menu_kb
-    if chart_buttons:
-        kb = InlineKeyboardMarkup(inline_keyboard=[[b] for b in chart_buttons])
-        reply_markup = kb
+    clean_response = _parse_chart_markers(response)
 
     await message.answer(
         f"🧠 BTC Monitor · Аналитика\n\n{ts}\n\n{clean_response}\n\n♻️ Отвечает Market-Brain на базе AI",
-        reply_markup=reply_markup,
     )
 
 
@@ -289,12 +277,8 @@ async def voice_ask(message: Message):
                 reply_markup=menu_kb,
             )
         else:
-            parsed_text, chart_markers = _parse_chart_markers(answer)
-            reply_markup = menu_kb
-            if chart_markers:
-                reply_markup = InlineKeyboardMarkup(inline_keyboard=[[b] for b in chart_markers])
-            text_to_send = parsed_text[:4000]
-            await message.answer(text_to_send, parse_mode="HTML", reply_markup=reply_markup)
+            text_to_send = answer[:4000]
+            await message.answer(text_to_send, parse_mode="HTML")
     except Exception as e:
         logger.error("Voice handler error: {}", e)
         try:
