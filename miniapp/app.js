@@ -1,4 +1,8 @@
 const API_BASE = window.location.origin;
+// DEBUG marker: if you see "SCRIPT OK" the JS executed
+var _dbg = document.getElementById('loading-text');
+if (_dbg) _dbg.textContent = 'SCRIPT OK';
+
 let Telegram = null;
 let initData = '';
 let userId = null;
@@ -41,7 +45,8 @@ async function loadI18n() {
   if (loadingEl) loadingEl.textContent = t('Загрузка...');
 }
 
-let _i18nLoaded = loadI18n();
+// let _i18nLoaded = loadI18n(); // DEBUG: disabled i18n
+_lang = 'ru'; _dict = {};
 
 async function setLang(code) {
   _lang = code;
@@ -733,89 +738,6 @@ async function renderAlerts() {
 
     html += '<div style="margin-top:12px;"><button class="upgrade-btn" onclick="window.location.hash=\'#indicators/subscriptions\'">' + t('➕ Добавить подписку') + '</button></div></div>';
     renderSub(html);
-  } catch (e) {
-    renderSub('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + escapeHtml(e.message) + '</div></div>');
-  }
-}
-      }
-    }
-    html += '</div>';
-
-    // ─── Add subscription ───
-    html += '<div class="card"><div class="card-title">➕ Добавить подписку</div>';
-    for (const a of ALERT_TYPES) {
-      const isActive = activeTypes.has(a.id);
-      html += `
-        <div class="sub-card${isActive ? ' active' : ''}" data-alert-type="${a.id}">
-          <span class="sub-card-icon">${a.icon}</span>
-          <div class="sub-card-info">
-            <div class="sub-card-name">${a.name}</div>
-            <div class="sub-card-desc">${a.desc}</div>
-          </div>
-          <div class="sub-card-action">${isActive ? '✓' : '+'}</div>
-          <div class="sub-card-tooltip">${a.tooltip}</div>
-        </div>`;
-    }
-    html += '</div>';
-
-    renderSub(html);
-
-    // ─── Unsubscribe ───
-    document.querySelectorAll('.btn-unsub').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        haptic('light');
-        const subId = btn.dataset.subId;
-        const alertType = btn.dataset.type;
-        try {
-          await apiCall('/miniapp/subscriptions/' + subId + '/' + alertType, { method: 'DELETE' });
-          tgShowAlert('Подписка отменена');
-          renderAlerts();
-        } catch (e) {
-          tgShowAlert('Ошибка: ' + e.message);
-        }
-      });
-    });
-
-    // ─── Subscribe + tooltip ───
-    document.querySelectorAll('.sub-card:not(.active)').forEach(card => {
-      card.addEventListener('click', async () => {
-        const alertType = card.dataset.alertType;
-        try {
-          await apiCall('/miniapp/subscriptions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ alert_type: alertType }),
-          });
-          tgShowAlert('✓ Подписка на ' + (ALERT_TYPES.find(a => a.id === alertType) || {}).name + ' оформлена');
-          renderAlerts();
-        } catch (e) {
-          tgShowAlert('Ошибка: ' + e.message);
-        }
-      });
-    });
-
-    // ─── Tooltip on tap ───
-    document.querySelectorAll('.sub-card').forEach(card => {
-      card.addEventListener('contextmenu', (e) => { e.preventDefault(); });
-      let tooltipTimer = null;
-      card.addEventListener('touchstart', () => {
-        tooltipTimer = setTimeout(() => {
-          const tip = card.querySelector('.sub-card-tooltip');
-          if (tip) tip.classList.add('visible');
-        }, 400);
-      });
-      card.addEventListener('touchend', () => {
-        clearTimeout(tooltipTimer);
-        const tip = card.querySelector('.sub-card-tooltip');
-        if (tip) tip.classList.remove('visible');
-      });
-      card.addEventListener('touchmove', () => {
-        clearTimeout(tooltipTimer);
-        const tip = card.querySelector('.sub-card-tooltip');
-        if (tip) tip.classList.remove('visible');
-      });
-    });
   } catch (e) {
     renderSub('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + escapeHtml(e.message) + '</div></div>');
   }
