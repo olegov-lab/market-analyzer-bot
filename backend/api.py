@@ -558,6 +558,26 @@ async def crypto_payment_verify(request: Request, payment_id: int):
 
 # ─── Async AI task store (polling-based) ──────────────────────────
 
+def _strip_english_reasoning(text: str) -> str:
+    """Strip English chain-of-thought reasoning from AI response, keep Russian analysis."""
+    import re
+    if not text:
+        return text
+    lines = text.splitlines()
+    result_lines = []
+    found_cyrillic = False
+    for line in lines:
+        if not found_cyrillic:
+            stripped = line.strip()
+            if stripped and re.search(r'[а-яА-ЯёЁ]', stripped):
+                found_cyrillic = True
+                result_lines.append(line)
+        else:
+            result_lines.append(line)
+    result = "\n".join(result_lines).strip()
+    return result or text
+
+
 async def _fetch_timothy_analysis(price: Optional[float], indicators) -> str:
     """Call AI for Timothy Peterson-style analysis with current market data.
 
@@ -620,6 +640,7 @@ async def _fetch_timothy_analysis(price: Optional[float], indicators) -> str:
             text = msg.content or ""
             if not text.strip():
                 text = getattr(msg, "reasoning_content", None) or "[empty response]"
+            text = _strip_english_reasoning(text)
             return text
         except Exception as e:
             last_err = e
@@ -646,6 +667,7 @@ async def _fetch_timothy_analysis(price: Optional[float], indicators) -> str:
             text = msg.content or ""
             if not text.strip():
                 text = getattr(msg, "reasoning_content", None) or ""
+            text = _strip_english_reasoning(text)
             return text or "[empty response]"
         except Exception as e:
             logger.error(f"Timothy OpenRouter fallback failed: {e}")
@@ -872,7 +894,9 @@ async def miniapp_news_timothy(request: Request):
     if redis_client:
         cached = await redis_client.get(cache_key)
         if cached:
-            return json.loads(cached)
+            result = json.loads(cached)
+            result["text"] = _strip_english_reasoning(result.get("text", ""))
+            return result
 
     price = await db.get_latest_price("BTCUSD")
     indicators = None
@@ -891,6 +915,7 @@ async def miniapp_news_timothy(request: Request):
 
     text = await _fetch_timothy_analysis(price, indicators)
     result = {"text": text, "source": "Timothy Peterson via AI"}
+    result["text"] = _strip_english_reasoning(result["text"])
 
     if redis_client:
         await redis_client.setex(cache_key, 3600, json.dumps(result, ensure_ascii=False))
