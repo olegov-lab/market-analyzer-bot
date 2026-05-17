@@ -147,12 +147,6 @@ function showLoading() {
 function showError(msg) {
   render('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + escapeHtml(msg || t('Ошибка отображения')) + '</div></div>');
 }
-  } catch (e) {
-    console.error('Render failed:', e);
-    const content = document.getElementById('content');
-    if (content) content.innerHTML = '<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">Ошибка отображения</div></div>';
-  }
-}
 
 function renderSub(html) {
   const el = document.getElementById('sub-content');
