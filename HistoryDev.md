@@ -136,4 +136,48 @@ OpenRouter rate-limit → OpenCode Go primary, 13 команд в меню, OOM-
 _rsi_bar модульная, update_rsi_cache. P0: get_all_onchain_metrics_since без LIMIT → OOM. Добавлены LIMIT 10000/2000, get_latest_onchain_metrics(), sequential await.
 
 ---
-**Текущее:** Сервер Fornex 2vCPU/3GB/25GB. 6 контейнеров. Named Tunnel btc.smartmarkettoday.com. 90 дней истории, LightGBM+Metcalfe. Известно: network_mode:host, нет кэп chatMessages.
+## 58: OOM Postgres — коренной фикс
+`deploy.resources.limits.memory` не работал (только Swarm). Добавлен `mem_limit:` всем сервисам. Кастомный `data/postgresql.conf`: shared_buffers=128MB, effective_cache_size=256MB, work_mem=1MB, max_connections=15, timescaledb preloaded. +listen_addresses='*'. Swap 2GB не тронут. БД пересоздана, 2168 свечей reseed.
+
+**Текущее:** Сервер Fornex 2vCPU/3GB/25GB. 6 контейнеров. Named Tunnel btc.smartmarkettoday.com. 90 дней истории, LightGBM+Metcalfe. Память: ~642MB из 3GB, 1.8Gi available.
+
+---
+## 59: UI доработки
+Навигация: Индик.→Новости→AI→Игры→PRO. Timothy: убраны мысли агента (reasoning_content), только ответ. AI-чат: 8 вопросов-кнопок с иконками, одна колонка, theme-aware стили. Фикс: крестик закрытия чата через inline onclick.
+
+---
+## 60: Timothy — DeepSeek V4 Pro + fallback
+GLM-5.1 через OpenCode Go перестал работать. Добавлен retry с двумя форматами (string → array[type+text]). Fallback на OpenRouter (minimax/m2.5). Первичная модель переключена на `deepseek-v4-pro`. `_fetch_timothy_analysis` вынесена в общую функцию.
+
+---
+## 61: Взлом + восстановление + безопасность
+**Инцидент:** Postgres порт 5432 открыт в мир (`0.0.0.0:5432`) с `host all all all trust`. Злоумышленник DROP'нул `public` схему, установил MySQL внутри postgres-контейнера, запустил ransomware (0.0064 BTC).
+
+**Восстановление:** data volume спасён через `docker cp`, БД восстановлена через single-user mode. User-таблицы были пусты — 0 записей.
+
+**Что изменилось:** `pg_hba.conf` → scram-sha-256, порты привязаны к 127.0.0.1, убран network_mode: host, fail2ban, auto-backup cron (6ч), health_check с Telegram. Ключи заменены. Тесты 284→290. Smoke 8/8. Load test: 100 users, 0 errors, 120ms median. Pool sizes настроены под каждый сервис.
+
+---
+## 62: UI фиксы + безопасность Cloudflare
+- Wallet wrap: flex-wrap для connect-wallet (input+кнопка переносятся на узких экранах)
+- Отключение кошелька: endpoint `/crypto/wallet/unlink`, кнопка «🔌 Отключить» под адресом
+- Восстановление PRO владельцу: пользователь добавлен в БД, выдана PRO-подписка на 365д
+- Cloudflare токен убран из `ps aux`: перенесён в `/etc/cloudflared/token` (chmod 600), systemd → `--token-file`
+- Git: все локальные изменения закоммичены и залиты на сервер через git pull
+
+---
+## 63: UX улучшения
+- «📊 Аналитика» в чате: добавлено `🧠 Анализирую рынок... ⏳` — сообщение удаляется, когда готов полный ответ
+- Mini App Игры: скрыта бесполезная стрелка «назад» в заголовке на главном экране игр (внутри игр стрелка работает)
+- Кнопка отключения TON-кошелька: стилизована как full-width upgrade-btn, расположена под адресом кошелька
+- HistoryDev.md: очищен от мусорных логов ассистента, сжат до нужного
+
+---
+## 64: TON payments + фиксы после git reset
+- TON payments not configured: добавлены `TON_RECIPIENT_WALLET`, `TONCENTER_API_URL` в .env
+- Ошибка 502 Bad Gateway: `git reset --hard` откатил пароль postgres в docker-compose.yml. Сгенерирован новый сильный пароль, `DATABASE_URL` переведён на `${POSTGRES_PASSWORD}` (из .env)
+- Цены TON: PRO 0.5 TON, PRO+ 1 TON (config.py + .env + frontend)
+- Кнопка «Открыть кошелёк»: убрана (не работала без Tonkeeper). Вместо неё — инструкция «отправь в любом кошельке» + кнопка «Я оплатил»
+- Верификация платежа: `POST /crypto/payment/{id}/verify` сканирует TONCenter, находит транзакцию по сумме+комментарию, активирует подписку
+- Навигация: убран `transform: scale(1.2)` из bottom-nav (замена на `filter: brightness`), выравнены верхние табы (`align-items: center`, фикс высоты)
+- Все security-настройки после взлома (pg_hba, порты 127.0.0.1, cloudflared token-file, fail2ban, health_check) пережили git reset
