@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openrouter_api_key: str = ""
     openrouter_model: str = "minimax/minimax-m2.5:free"
+    db_pool_min: int = 1
+    db_pool_max: int = 5
 
     @property
     def miniapp_url_normalized(self) -> str:

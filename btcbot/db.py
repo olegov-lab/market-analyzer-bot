@@ -9,20 +9,26 @@ from loguru import logger
 
 
 class Database:
-    def __init__(self, dsn: str) -> None:
+    def __init__(self, dsn: str, pool_min_size: int = 1, pool_max_size: int = 5) -> None:
         self.dsn = dsn
+        self.pool_min_size = pool_min_size
+        self.pool_max_size = pool_max_size
         self.pool: Optional[asyncpg.Pool] = None
 
     async def connect(self) -> None:
         try:
-            self.pool = await asyncpg.create_pool(self.dsn, min_size=1, max_size=3)
+            self.pool = await asyncpg.create_pool(
+                self.dsn, min_size=self.pool_min_size, max_size=self.pool_max_size,
+            )
         except asyncpg.InvalidCatalogNameError:
             dbname = self._parse_dbname()
             logger.warning("Database '{}' not found, creating...", dbname)
             await self._ensure_database(dbname)
-            self.pool = await asyncpg.create_pool(self.dsn, min_size=1, max_size=3)
+            self.pool = await asyncpg.create_pool(
+                self.dsn, min_size=self.pool_min_size, max_size=self.pool_max_size,
+            )
         await self._init_schema()
-        logger.info("Database connected")
+        logger.info("Database connected (pool {}/{})", self.pool_min_size, self.pool_max_size)
 
     async def close(self) -> None:
         if self.pool:
@@ -51,7 +57,7 @@ class Database:
             logger.info("Database disconnected")
 
     async def _init_schema(self) -> None:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             await conn.execute("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE")
 
             await conn.execute("""
@@ -337,7 +343,7 @@ class Database:
             """)
 
     async def save_price(self, record: Any) -> None:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             await conn.execute(
                 "INSERT INTO prices (time, symbol, price, volume, source) VALUES ($1, $2, $3, $4, $5)",
                 record.time, record.symbol, record.price, record.volume, record.source,
@@ -346,32 +352,32 @@ class Database:
     async def save_prices_batch(self, records: list[Any]) -> None:
         if not records:
             return
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             await conn.executemany(
                 "INSERT INTO prices (time, symbol, price, volume, source) VALUES ($1, $2, $3, $4, $5)",
                 [(r.time, r.symbol, r.price, r.volume, r.source) for r in records],
             )
 
     async def get_latest_price(self, symbol: str = "BTCUSD") -> Optional[float]:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             row = await conn.fetchrow(
                 "SELECT price FROM prices WHERE symbol = $1 ORDER BY time DESC LIMIT 1", symbol
             )
             return row["price"] if row else None
 
     async def save_prediction(self, pred: Any) -> None:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             await conn.execute(
                 "INSERT INTO predictions (time, horizon, price_min, price_max, direction, confidence, meta) VALUES ($1,$2,$3,$4,$5,$6,$7)",
                 pred.time, pred.horizon, pred.price_min, pred.price_max, pred.direction, pred.confidence, json.dumps(pred.meta),
             )
 
     async def get_latest_prediction(self) -> Optional[asyncpg.Record]:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             return await conn.fetchrow("SELECT * FROM predictions ORDER BY time DESC LIMIT 1")
 
     async def save_onchain_metric(self, metric: Any) -> None:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             await conn.execute(
                 "INSERT INTO onchain_metrics (time, metric_name, value, source) VALUES ($1,$2,$3,$4)",
                 metric.time, metric.metric_name, metric.value, metric.source,
@@ -380,32 +386,32 @@ class Database:
     async def save_onchain_metrics_batch(self, metrics: list[Any]) -> None:
         if not metrics:
             return
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             await conn.executemany(
                 "INSERT INTO onchain_metrics (time, metric_name, value, source) VALUES ($1,$2,$3,$4)",
                 [(m.time, m.metric_name, m.value, m.source) for m in metrics],
             )
 
     async def upsert_user(self, user_id: int, username: Optional[str] = None) -> None:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             await conn.execute(
                 "INSERT INTO users (user_id, username) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET username = COALESCE($2, users.username)",
                 user_id, username,
             )
 
     async def get_user_timezone(self, user_id: int) -> str:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             row = await conn.fetchval("SELECT timezone FROM users WHERE user_id=$1", user_id)
             return row or "Europe/Moscow"
 
     async def set_user_timezone(self, user_id: int, tz: str) -> None:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             await conn.execute("UPDATE users SET timezone=$1 WHERE user_id=$2", tz, user_id)
 
     async def add_subscription(
         self, user_id: int, symbol: str, interval: str, alert_types: list[str]
     ) -> None:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             existing = await conn.fetchrow(
                 "SELECT id, alert_types FROM subscriptions WHERE user_id=$1 AND symbol=$2 AND interval=$3",
                 user_id, symbol, interval,
@@ -423,17 +429,17 @@ class Database:
                 )
 
     async def get_user_subscriptions(self, user_id: int) -> list[asyncpg.Record]:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             return await conn.fetch(
                 "SELECT * FROM subscriptions WHERE user_id = $1", user_id
             )
 
     async def delete_subscription(self, sub_id: int) -> None:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             await conn.execute("DELETE FROM subscriptions WHERE id = $1", sub_id)
 
     async def remove_alert_type(self, sub_id: int, alert_type: str) -> None:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             row = await conn.fetchrow("SELECT alert_types FROM subscriptions WHERE id=$1", sub_id)
             if not row:
                 return
@@ -446,7 +452,7 @@ class Database:
     async def get_prices_since(
         self, symbol: str, since: datetime
     ) -> list[asyncpg.Record]:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             return await conn.fetch(
                 "SELECT time, price, volume FROM prices WHERE symbol = $1 AND time >= $2 ORDER BY time ASC",
                 symbol, since,
@@ -455,7 +461,7 @@ class Database:
     async def get_1m_candles_since(
         self, symbol: str, since: datetime
     ) -> list[asyncpg.Record]:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             rows = await conn.fetch("""
                 SELECT bucket as time, close as price, volume
                 FROM candles_1m
@@ -477,7 +483,7 @@ class Database:
     async def get_4h_candles_since(
         self, symbol: str, since: datetime
     ) -> list[asyncpg.Record]:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             rows = await conn.fetch("""
                 SELECT bucket, open, high, low, close, volume
                 FROM candles_4h
@@ -503,7 +509,7 @@ class Database:
     async def get_daily_candles_since(
         self, symbol: str, since: datetime
     ) -> list[asyncpg.Record]:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             rows = await conn.fetch("""
                 SELECT
                     time_bucket('1 day', bucket) AS bucket,
@@ -529,7 +535,7 @@ class Database:
             return rows
 
     async def get_hourly_candles_since(self, symbol: str, since: datetime) -> list[asyncpg.Record]:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             rows = await conn.fetch("""
                 SELECT
                     time_bucket('1 hour', bucket) AS bucket,
@@ -564,13 +570,13 @@ class Database:
             return rows
 
     async def get_active_users(self) -> list[asyncpg.Record]:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             return await conn.fetch(
                 "SELECT user_id, timezone FROM users WHERE is_active = TRUE"
             )
 
     async def get_users_with_subscriptions(self) -> list[asyncpg.Record]:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             return await conn.fetch("""
                 SELECT u.user_id, u.timezone, unnest(s.alert_types) as alert_type
                 FROM users u
@@ -581,7 +587,7 @@ class Database:
     async def get_onchain_metric_since(
         self, metric_name: str, since: datetime
     ) -> list[asyncpg.Record]:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             return await conn.fetch(
                 "SELECT time, value FROM onchain_metrics WHERE metric_name = $1 AND time >= $2 ORDER BY time ASC",
                 metric_name, since,
@@ -590,21 +596,21 @@ class Database:
     async def get_all_onchain_metrics_since(
         self, since: datetime
     ) -> list[asyncpg.Record]:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             return await conn.fetch(
                 "SELECT time, metric_name, value FROM onchain_metrics WHERE time >= $1 ORDER BY time ASC LIMIT 10000",
                 since,
             )
 
     async def get_latest_onchain_metrics(self) -> dict[str, float]:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             rows = await conn.fetch(
                 "SELECT DISTINCT ON (metric_name) metric_name, value FROM onchain_metrics ORDER BY metric_name, time DESC"
             )
             return {r["metric_name"]: r["value"] for r in rows}
 
     async def add_price_alert(self, user_id: int, target_price: float, direction: str = "any") -> int:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             row = await conn.fetchrow(
                 "INSERT INTO price_alerts (user_id, target_price, direction) VALUES ($1,$2,$3) RETURNING id",
                 user_id, target_price, direction,
@@ -612,24 +618,24 @@ class Database:
             return row["id"]
 
     async def get_user_price_alerts(self, user_id: int) -> list[asyncpg.Record]:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             return await conn.fetch(
                 "SELECT * FROM price_alerts WHERE user_id = $1 ORDER BY created_at DESC",
                 user_id,
             )
 
     async def delete_price_alert(self, alert_id: int) -> None:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             await conn.execute("DELETE FROM price_alerts WHERE id = $1", alert_id)
 
     async def get_active_price_alerts(self) -> list[asyncpg.Record]:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             return await conn.fetch(
                 "SELECT * FROM price_alerts WHERE triggered = FALSE ORDER BY target_price ASC"
             )
 
     async def mark_price_alert_triggered(self, alert_id: int) -> None:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             await conn.execute(
                 "UPDATE price_alerts SET triggered = TRUE, triggered_at = NOW() WHERE id = $1",
                 alert_id,
@@ -649,7 +655,7 @@ class Database:
         if not interval:
             return []
 
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             if timeframe == "4h":
                 rows = await conn.fetch("""
                     SELECT bucket, open, high, low, close, volume
@@ -706,7 +712,7 @@ class Database:
     # ─── Game methods ─────────────────────────────────────────────────
 
     async def get_or_create_game_user(self, user_id: int) -> asyncpg.Record:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             await conn.execute(
                 "INSERT INTO users (user_id, username) VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING",
                 user_id, str(user_id),
@@ -714,13 +720,13 @@ class Database:
             row = await conn.fetchrow("SELECT * FROM game_users WHERE user_id = $1", user_id)
             if not row:
                 row = await conn.fetchrow(
-                    "INSERT INTO game_users (user_id, balance) VALUES ($1, 10000) RETURNING *",
+                    "INSERT INTO game_users (user_id, balance, stars) VALUES ($1, 10000, 10) RETURNING *",
                     user_id,
                 )
             return row
 
     async def open_position(self, user_id: int, side: str, quantity: float, entry_price: float, notional: float) -> asyncpg.Record:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             async with conn.transaction():
                 await conn.execute(
                     "UPDATE game_users SET balance = balance - $1, updated_at = NOW() WHERE user_id = $2",
@@ -733,7 +739,7 @@ class Database:
             return row
 
     async def close_position(self, user_id: int, position_id: int, exit_price: float, fee_pct: float = 0.001) -> asyncpg.Record:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             pos = await conn.fetchrow("SELECT * FROM positions WHERE id = $1 AND user_id = $2", position_id, user_id)
             if not pos:
                 return None
@@ -756,58 +762,58 @@ class Database:
             return row
 
     async def get_game_user(self, user_id: int) -> Optional[asyncpg.Record]:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             return await conn.fetchrow("SELECT * FROM game_users WHERE user_id = $1", user_id)
 
     async def get_positions(self, user_id: int) -> list[asyncpg.Record]:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             return await conn.fetch("SELECT * FROM positions WHERE user_id = $1 ORDER BY opened_at DESC", user_id)
 
     async def get_trades(self, user_id: int, limit: int = 20, offset: int = 0) -> list[asyncpg.Record]:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             return await conn.fetch(
                 "SELECT * FROM trades WHERE user_id = $1 ORDER BY closed_at DESC LIMIT $2 OFFSET $3",
                 user_id, limit, offset,
             )
 
     async def refresh_leaderboard(self) -> None:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             try:
                 await conn.execute("REFRESH MATERIALIZED VIEW leaderboard_mv")
             except Exception:
                 pass
 
     async def get_leaderboard(self) -> list[asyncpg.Record]:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             return await conn.fetch("SELECT * FROM leaderboard_mv ORDER BY rank")
 
     # ─── Tournament methods ─────────────────────────────────────────
 
     async def create_tournament(self, name: str, starts_at, ends_at, prize_pool: int = 500) -> asyncpg.Record:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             return await conn.fetchrow(
                 "INSERT INTO tournaments (name, starts_at, ends_at, prize_pool_stars, status) VALUES ($1,$2,$3,$4,'upcoming') RETURNING *",
                 name, starts_at, ends_at, prize_pool,
             )
 
     async def get_active_tournament(self) -> Optional[asyncpg.Record]:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             return await conn.fetchrow(
                 "SELECT * FROM tournaments WHERE status = 'active' ORDER BY ends_at ASC LIMIT 1"
             )
 
     async def get_tournaments(self) -> list[asyncpg.Record]:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             return await conn.fetch(
                 "SELECT * FROM tournaments ORDER BY starts_at DESC LIMIT 10"
             )
 
     async def get_tournament(self, tournament_id: int) -> Optional[asyncpg.Record]:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             return await conn.fetchrow("SELECT * FROM tournaments WHERE id = $1", tournament_id)
 
     async def join_tournament(self, tournament_id: int, user_id: int, current_pnl: float) -> asyncpg.Record:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             return await conn.fetchrow(
                 "INSERT INTO tournament_entries (tournament_id, user_id, start_pnl) VALUES ($1,$2,$3) "
                 "ON CONFLICT (tournament_id, user_id) DO NOTHING RETURNING *",
@@ -815,7 +821,7 @@ class Database:
             )
 
     async def get_tournament_entries(self, tournament_id: int) -> list[asyncpg.Record]:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             return await conn.fetch(
                 "SELECT te.*, u.username FROM tournament_entries te "
                 "JOIN users u ON te.user_id = u.user_id "
@@ -824,14 +830,14 @@ class Database:
             )
 
     async def get_tournament_entry(self, tournament_id: int, user_id: int) -> Optional[asyncpg.Record]:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             return await conn.fetchrow(
                 "SELECT * FROM tournament_entries WHERE tournament_id = $1 AND user_id = $2",
                 tournament_id, user_id,
             )
 
     async def update_tournament_rankings(self, tournament_id: int) -> None:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             entries = await conn.fetch(
                 "SELECT te.user_id, gu.total_pnl - te.start_pnl AS pnl_delta "
                 "FROM tournament_entries te JOIN game_users gu ON te.user_id = gu.user_id "
@@ -856,7 +862,7 @@ class Database:
     # ─── Referral methods ───────────────────────────────────────────
 
     async def create_referral(self, referrer_id: int, referred_id: int, bonus_usd: float = 5.0) -> bool:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             try:
                 await conn.execute(
                     "INSERT INTO referrals (referrer_id, referred_id, bonus_usd) VALUES ($1,$2,$3) "
@@ -868,7 +874,7 @@ class Database:
                 return False
 
     async def credit_referral_bonus(self, referral_id: int) -> None:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             ref = await conn.fetchrow("SELECT referrer_id, bonus_usd FROM referrals WHERE id = $1 AND NOT bonus_credited", referral_id)
             if ref:
                 await conn.execute("UPDATE game_users SET balance = balance + $1, updated_at = NOW() WHERE user_id = $2",
@@ -876,7 +882,7 @@ class Database:
                 await conn.execute("UPDATE referrals SET bonus_credited = TRUE WHERE id = $1", referral_id)
 
     async def get_referral_stats(self, referrer_id: int) -> dict:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             count = await conn.fetchval("SELECT COUNT(*) FROM referrals WHERE referrer_id = $1", referrer_id)
             total_bonus = await conn.fetchval("SELECT COALESCE(SUM(bonus_usd), 0) FROM referrals WHERE referrer_id = $1 AND bonus_credited", referrer_id)
             rows = await conn.fetch(
@@ -888,13 +894,13 @@ class Database:
             return {"count": count or 0, "total_bonus": float(total_bonus or 0), "referrals": [dict(r) for r in rows]}
 
     async def add_stars(self, user_id: int, amount: int) -> None:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             await conn.execute("UPDATE game_users SET stars = stars + $1 WHERE user_id = $2", amount, user_id)
 
     # ─── Price Guess ──────────────────────────────────────────────
 
     async def _ensure_price_guesses_table(self):
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS price_guesses (
                     id BIGSERIAL PRIMARY KEY,
@@ -912,7 +918,7 @@ class Database:
 
     async def submit_price_guess(self, user_id: int, guess_price: float) -> dict:
         await self._ensure_price_guesses_table()
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             row = await conn.fetchrow(
                 "INSERT INTO price_guesses (user_id, guess_price) VALUES ($1, $2) "
                 "ON CONFLICT (user_id, guess_date) DO UPDATE SET guess_price = $2 "
@@ -923,7 +929,7 @@ class Database:
 
     async def get_user_guess_today(self, user_id: int) -> Optional[asyncpg.Record]:
         await self._ensure_price_guesses_table()
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             return await conn.fetchrow(
                 "SELECT * FROM price_guesses WHERE user_id = $1 AND guess_date = CURRENT_DATE",
                 user_id,
@@ -931,7 +937,7 @@ class Database:
 
     async def get_all_guesses_for_date(self, guess_date=None) -> list[asyncpg.Record]:
         await self._ensure_price_guesses_table()
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             if guess_date:
                 return await conn.fetch(
                     "SELECT pg.*, u.username FROM price_guesses pg "
@@ -947,7 +953,7 @@ class Database:
 
     async def resolve_guesses(self, btc_price: float) -> list[dict]:
         await self._ensure_price_guesses_table()
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             yesterday = await conn.fetchval("SELECT CURRENT_DATE - INTERVAL '1 day'")
             guesses = await conn.fetch(
                 "SELECT * FROM price_guesses WHERE guess_date = $1 AND btc_price_at_resolution IS NULL",
@@ -982,7 +988,7 @@ class Database:
 
     async def get_guess_history(self, user_id: int, limit: int = 10) -> list[asyncpg.Record]:
         await self._ensure_price_guesses_table()
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             return await conn.fetch(
                 "SELECT * FROM price_guesses WHERE user_id = $1 ORDER BY guess_date DESC LIMIT $2",
                 user_id, limit,
@@ -1010,7 +1016,7 @@ class Database:
     ]
 
     async def _ensure_achievements_table(self):
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS achievements (
                     slug TEXT PRIMARY KEY,
@@ -1037,7 +1043,7 @@ class Database:
 
     async def unlock_achievement(self, user_id: int, slug: str) -> Optional[dict]:
         await self._ensure_achievements_table()
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             try:
                 row = await conn.fetchrow(
                     "INSERT INTO user_achievements (user_id, slug) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING *",
@@ -1051,7 +1057,7 @@ class Database:
 
     async def get_user_achievements(self, user_id: int) -> list[asyncpg.Record]:
         await self._ensure_achievements_table()
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             return await conn.fetch("""
                 SELECT a.*, ua.unlocked_at
                 FROM achievements a
@@ -1061,5 +1067,5 @@ class Database:
 
     async def get_all_achievements(self) -> list[asyncpg.Record]:
         await self._ensure_achievements_table()
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=5.0) as conn:
             return await conn.fetch("SELECT * FROM achievements ORDER BY category, slug")

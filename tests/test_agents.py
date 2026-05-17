@@ -188,6 +188,7 @@ class TestAskAgent:
         )
 
         with patch("backend.agents._get_client", return_value=mock_client), \
+             patch("backend.agents._get_openrouter_client", return_value=mock_client), \
              patch("backend.agents.load_agent") as mock_load:
             mock_load.return_value = {
                 "name": "Test",

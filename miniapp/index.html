@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#000">
 <title>BTC Monitor</title>
 <base href="/miniapp/">
-<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="app.css?v=2">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
 </head>
@@ -18,12 +18,13 @@
       <p id="loading-text">Загрузка...</p>
     </div>
   </main>
-  <nav id="orbital-nav">
-    <button class="orbital-btn active" data-page="indicators" style="bottom:33px;left:calc(50% - 140px)"><span class="orbital-icon">📊</span><span class="orbital-label">Индик.</span></button>
-    <button class="orbital-btn" data-page="miniapp" style="bottom:33px;left:calc(50% - 80px)"><span class="orbital-icon">🎮</span><span class="orbital-label">Мини App</span></button>
-    <button id="ai-bubble" title="AI Чат" style="bottom:19px;left:50%"><span>🧠</span></button>
-    <button class="orbital-btn" data-page="news" style="bottom:33px;left:calc(50% + 80px)"><span class="orbital-icon">📰</span><span class="orbital-label">Новости</span></button>
-    <button class="orbital-btn" data-page="upgrade" style="bottom:33px;left:calc(50% + 140px)"><span class="orbital-icon">💎</span><span class="orbital-label">PRO</span></button>
+  <div id="sub-tabs-bar"></div>
+  <nav id="bottom-nav">
+    <button class="nav-btn" data-page="indicators" data-icon="📊" data-label="Индик."></button>
+    <button class="nav-btn" data-page="news" data-icon="📰" data-label="Новости"></button>
+    <button class="nav-btn nav-ai" data-page="chat" data-icon="🧠" data-label="AI"></button>
+    <button class="nav-btn" data-page="miniapp" data-icon="🎮" data-label="Play"></button>
+    <button class="nav-btn" data-page="upgrade" data-icon="💎" data-label="PRO"></button>
   </nav>
 </div>
 <script src="app.js?v=20260516.1"></script>

@@ -14,6 +14,8 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
+from openai import AsyncOpenAI
+
 from btcbot.analyzer import Analyzer
 from btcbot.config import settings
 from btcbot.db import Database
@@ -24,14 +26,14 @@ from btcbot.news import NEWS_CACHE_TTL, build_sentiment_summary, fetch_news
 from btcbot.subscription import get_user_tier
 from btcbot.utils import safe_gather
 from backend.miniapp_auth import verify_telegram_init_data
-from backend.agents import _get_client, ask_agent, list_agents
+from backend.agents import ask_agent, list_agents
 
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="Market Analyzer Bot")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-db = Database(settings.database_url)
+db = Database(settings.database_url, pool_min_size=settings.db_pool_min, pool_max_size=settings.db_pool_max)
 redis_client: Optional[aioredis.Redis] = None
 analyzer: Optional[Analyzer] = None
 fear_greed: Optional[FearGreedIndex] = None
@@ -84,6 +86,32 @@ async def root(request: Request):
 @limiter.limit("30/minute")
 async def health(request: Request):
     return {"status": "ok"}
+
+
+@app.get("/debug/pool")
+@limiter.limit("10/minute")
+async def debug_pool(request: Request):
+    pool = db.pool
+    if not pool:
+        return {"pool": None, "configured": {"min": db.pool_min_size, "max": db.pool_max_size}}
+    try:
+        async with pool.acquire(timeout=2.0) as conn:
+            await conn.execute("SELECT 1")
+        ok = True
+    except Exception as e:
+        ok = str(e)
+    info = {
+        "configured": {"min": db.pool_min_size, "max": db.pool_max_size},
+        "check": "ok" if ok is True else ok,
+    }
+    try:
+        info["_minsize"] = pool._minsize
+        info["_maxsize"] = pool._maxsize
+        info["_holders"] = len(pool._holders)
+        info["_queue_size"] = pool._queue.qsize() if hasattr(pool._queue, "qsize") else "N/A"
+    except Exception:
+        pass
+    return info
 
 
 # ─── Agents API ─────────────────────────────────────────────────────
@@ -314,7 +342,7 @@ async def miniapp_subscription_status(request: Request):
     user_id = await _get_user_id(request)
     tier = await get_user_tier(db, user_id)
     tier_str = tier.value
-    async with db.pool.acquire() as conn:
+    async with db.pool.acquire(timeout=5.0) as conn:
         row = await conn.fetchrow(
             "SELECT trial_until, pro_until, pro_plus_until FROM user_subscriptions WHERE user_id = $1",
             user_id,
@@ -330,13 +358,51 @@ async def miniapp_subscription_status(request: Request):
     return result
 
 
+@app.post("/miniapp/subscribe")
+@limiter.limit("5/minute")
+async def miniapp_subscribe(request: Request):
+    user_id = await _get_user_id(request)
+    body = await request.json()
+    tier = body.get("tier", "pro")
+    if tier not in ("pro", "pro_plus"):
+        raise HTTPException(400, "Invalid tier")
+
+    import aiohttp
+
+    prices_map = {
+        "pro": (50, "BTC Monitor PRO", "Безлимитный AI-чат, продвинутые алерты, безлимит сделок"),
+        "pro_plus": (100, "BTC Monitor PRO+", "Всё из PRO + голос, confidence score ML, персональный дашборд"),
+    }
+    price, title, desc = prices_map[tier]
+    payload = f"{tier}_monthly"
+    url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendInvoice"
+    params = {
+        "chat_id": user_id,
+        "title": title,
+        "description": desc,
+        "payload": payload,
+        "currency": "XTR",
+        "prices": json.dumps([{"label": f"{title} на 1 месяц", "amount": price}]),
+        "provider_token": "",
+    }
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, data=params) as resp:
+            result = await resp.json()
+
+    if not result.get("ok"):
+        logger.error(f"sendInvoice failed for {user_id}: {result}")
+        raise HTTPException(502, f"Telegram API error: {result.get('description', 'unknown')}")
+
+    return {"status": "sent", "tier": tier}
+
+
 # ─── Crypto / TON Payment ──────────────────────────────────────────
 
 @app.get("/crypto/wallet/status")
 @limiter.limit("20/minute")
 async def crypto_wallet_status(request: Request):
     user_id = await _get_user_id(request)
-    async with db.pool.acquire() as conn:
+    async with db.pool.acquire(timeout=5.0) as conn:
         row = await conn.fetchrow(
             "SELECT ton_wallet, updated_at FROM user_subscriptions WHERE user_id = $1",
             user_id,
@@ -354,13 +420,25 @@ async def crypto_wallet_link(request: Request):
     wallet = (body.get("wallet_address") or "").strip()
     if not wallet or len(wallet) < 32:
         raise HTTPException(400, "Invalid TON wallet address")
-    async with db.pool.acquire() as conn:
+    async with db.pool.acquire(timeout=5.0) as conn:
         await conn.execute(
             "INSERT INTO user_subscriptions (user_id, ton_wallet) VALUES ($1, $2) "
             "ON CONFLICT (user_id) DO UPDATE SET ton_wallet = $2, updated_at = NOW()",
             user_id, wallet,
         )
     return {"status": "linked", "wallet_address": wallet}
+
+
+@app.post("/crypto/wallet/unlink")
+@limiter.limit("10/minute")
+async def crypto_wallet_unlink(request: Request):
+    user_id = await _get_user_id(request)
+    async with db.pool.acquire(timeout=5.0) as conn:
+        await conn.execute(
+            "UPDATE user_subscriptions SET ton_wallet = NULL, updated_at = NOW() WHERE user_id = $1",
+            user_id,
+        )
+    return {"status": "unlinked"}
 
 
 @app.post("/crypto/payment/create")
@@ -381,7 +459,7 @@ async def crypto_payment_create(request: Request):
     amount_nano = ton_to_nano(amount_ton)
     comment = f"btcmon_{tier}_{user_id}"
 
-    async with db.pool.acquire() as conn:
+    async with db.pool.acquire(timeout=5.0) as conn:
         row = await conn.fetchrow(
             "INSERT INTO crypto_payments (user_id, wallet_address, amount_nano, amount_ton, tier, comment, status) "
             "VALUES ($1,$2,$3,$4,$5,$6,'pending') RETURNING id",
@@ -402,7 +480,7 @@ async def crypto_payment_create(request: Request):
 @limiter.limit("30/minute")
 async def crypto_payment_status(request: Request, payment_id: int):
     user_id = await _get_user_id(request)
-    async with db.pool.acquire() as conn:
+    async with db.pool.acquire(timeout=5.0) as conn:
         row = await conn.fetchrow(
             "SELECT id, status, tier, amount_ton, tx_hash, paid_at, comment "
             "FROM crypto_payments WHERE id = $1 AND user_id = $2",
@@ -427,7 +505,7 @@ async def crypto_payment_verify(request: Request, payment_id: int):
     body = await request.json() if request.headers.get("content-length", "0") != "0" else {}
     tx_hash = (body.get("tx_hash") or "").strip()
 
-    async with db.pool.acquire() as conn:
+    async with db.pool.acquire(timeout=5.0) as conn:
         row = await conn.fetchrow(
             "SELECT id, user_id, amount_nano, amount_ton, tier, comment, status, created_at "
             "FROM crypto_payments WHERE id = $1 AND user_id = $2",
@@ -468,7 +546,7 @@ async def crypto_payment_verify(request: Request, payment_id: int):
         else:
             await activate_pro(db, user_id)
 
-        async with db.pool.acquire() as conn2:
+        async with db.pool.acquire(timeout=5.0) as conn2:
             await conn2.execute(
                 "UPDATE crypto_payments SET status='paid', tx_hash=$1, paid_at=NOW() WHERE id=$2",
                 found_tx_hash, payment_id,
@@ -481,7 +559,10 @@ async def crypto_payment_verify(request: Request, payment_id: int):
 # ─── Async AI task store (polling-based) ──────────────────────────
 
 async def _fetch_timothy_analysis(price: Optional[float], indicators) -> str:
-    """Call OpenCode agent for Timothy Peterson-style analysis with current market data."""
+    """Call AI for Timothy Peterson-style analysis with current market data.
+
+    Tries OpenCode Go with multiple message formats, falls back to OpenRouter.
+    """
     system_prompt = (
         "You are Timothy Peterson, a renowned Bitcoin analyst and author of the paper "
         "'Metcalfe's Law as a Model for Bitcoin's Value'. You are known for the Lowest Price "
@@ -489,7 +570,8 @@ async def _fetch_timothy_analysis(price: Optional[float], indicators) -> str:
         "Your analysis style: data-driven, quantitative, skeptical of hype, focused on long-term "
         "trends, Metcalfe's Law, hash rate, and adoption curves. Answer in Russian, "
         "be concise (300-400 words). Use ONLY the real-time data provided in the prompt. "
-        "Do NOT invent prices or dates — reference only what is given."
+        "Do NOT invent prices or dates — reference only what is given. "
+        "Output ONLY the final Russian analysis — no internal reasoning, no English preface, no step-by-step breakdown. Start directly with the text."
     )
     ctx_parts = []
     if price:
@@ -507,20 +589,68 @@ async def _fetch_timothy_analysis(price: Optional[float], indicators) -> str:
         "key support/resistance levels based on the MA values above, and near-term outlook. "
         "Write in Russian, 300-400 words."
     )
-    client = _get_client()
-    resp = await client.chat.completions.create(
-        model="glm-5.1",
-        messages=[
+
+    last_err = None
+    formats = [
+        ("string", [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
-        ],
-        temperature=0.7,
-        max_tokens=2048,
-    )
-    msg = resp.choices[0].message
-    text = msg.content or ""
-    reasoning = getattr(msg, "reasoning_content", None) or ""
-    return text or reasoning or "[empty response]"
+        ]),
+        ("array[type+text]", [
+            {"role": "system", "content": [{"type": "text", "text": system_prompt}]},
+            {"role": "user", "content": [{"type": "text", "text": prompt}]},
+        ]),
+    ]
+
+    for fmt_name, messages in formats:
+        try:
+            client = AsyncOpenAI(
+                api_key=settings.opencode_go_api_key,
+                base_url=settings.opencode_go_endpoint,
+                timeout=120.0,
+                max_retries=1,
+            )
+            resp = await client.chat.completions.create(
+                model="deepseek-v4-pro",
+                messages=messages,
+                temperature=0.7,
+                max_tokens=2048,
+            )
+            msg = resp.choices[0].message
+            text = msg.content or ""
+            if not text.strip():
+                text = getattr(msg, "reasoning_content", None) or "[empty response]"
+            return text
+        except Exception as e:
+            last_err = e
+            logger.warning(f"Timothy Go API ({fmt_name}) failed: {e}")
+
+    if settings.openrouter_api_key:
+        try:
+            client = AsyncOpenAI(
+                api_key=settings.openrouter_api_key,
+                base_url="https://openrouter.ai/api/v1",
+                timeout=120.0,
+                max_retries=2,
+            )
+            resp = await client.chat.completions.create(
+                model=settings.openrouter_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.7,
+                max_tokens=2048,
+            )
+            msg = resp.choices[0].message
+            text = msg.content or ""
+            if not text.strip():
+                text = getattr(msg, "reasoning_content", None) or ""
+            return text or "[empty response]"
+        except Exception as e:
+            logger.error(f"Timothy OpenRouter fallback failed: {e}")
+
+    raise last_err or Exception("All Timothy providers failed")
 
 
 async def _warmup_timothy_cache():
@@ -744,18 +874,6 @@ async def miniapp_news_timothy(request: Request):
         if cached:
             return json.loads(cached)
 
-    system_prompt = (
-        "You are Timothy Peterson, a renowned Bitcoin analyst and author of the paper "
-        "'Metcalfe's Law as a Model for Bitcoin's Value'. You are known for the Lowest Price "
-        "Forward (LPF) indicator and modeling BTC price using network effects. "
-        "Your analysis style: data-driven, quantitative, skeptical of hype, focused on long-term "
-        "trends, Metcalfe's Law, hash rate, and adoption curves. Answer in Russian, "
-        "be concise (300-400 words). Provide a current Bitcoin market analysis in your signature style — "
-        "include perspective on valuation vs Metcalfe's Law, key support/resistance levels, "
-        "and a short-term outlook. Use ONLY the real-time data provided in the prompt. "
-        "Do NOT invent prices or dates — reference only what is given."
-    )
-    # Fetch current market context for accurate analysis
     price = await db.get_latest_price("BTCUSD")
     indicators = None
     if redis_client:
@@ -771,41 +889,8 @@ async def miniapp_news_timothy(request: Request):
         except Exception:
             pass
 
-    ctx_parts = []
-    if price:
-        ctx_parts.append(f"Текущая цена BTC: ${price:,.0f}")
-    if indicators:
-        if indicators.rsi is not None:
-            ctx_parts.append(f"RSI(14): {indicators.rsi:.1f}")
-        if indicators.ma_50 is not None and indicators.ma_200 is not None:
-            ctx_parts.append(f"MA50: ${indicators.ma_50:,.0f}, MA200: ${indicators.ma_200:,.0f}")
-    ctx = "\n".join(ctx_parts)
-    prompt = (
-        "Give a brief Bitcoin market analysis in your signature Timothy Peterson style.\n\n"
-        f"REAL-TIME DATA (use these exact numbers, do not fabricate):\n{ctx}\n\n"
-        "Include your view on current valuation relative to Metcalfe's Law, "
-        "key support/resistance levels based on the MA values above, and near-term outlook. "
-        "Write in Russian, 300-400 words."
-    )
-    try:
-        client = _get_client()
-        resp = await client.chat.completions.create(
-            model="glm-5.1",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.7,
-            max_tokens=2048,
-        )
-        msg = resp.choices[0].message
-        text = msg.content or ""
-        reasoning = getattr(msg, "reasoning_content", None) or ""
-        text = text or reasoning or "[empty response]"
-        result = {"text": text, "source": "Timothy Peterson via AI"}
-    except Exception as e:
-        logger.error(f"Timothy news agent error: {e}")
-        result = {"text": f"Не удалось получить анализ. Попробуйте позже.", "source": "error"}
+    text = await _fetch_timothy_analysis(price, indicators)
+    result = {"text": text, "source": "Timothy Peterson via AI"}
 
     if redis_client:
         await redis_client.setex(cache_key, 3600, json.dumps(result, ensure_ascii=False))

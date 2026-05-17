@@ -32,7 +32,7 @@ PRO_PLUS_FEATURES = PRO_FEATURES | {
 
 
 async def get_user_tier(db, user_id: int) -> Tier:
-    async with db.pool.acquire() as conn:
+    async with db.pool.acquire(timeout=5.0) as conn:
         row = await conn.fetchrow(
             "SELECT tier, trial_until, pro_until, pro_plus_until FROM user_subscriptions WHERE user_id = $1",
             user_id,
@@ -59,7 +59,7 @@ async def has_feature(db, user_id: int, feature: str) -> bool:
 
 
 async def activate_trial(db, user_id: int) -> None:
-    async with db.pool.acquire() as conn:
+    async with db.pool.acquire(timeout=5.0) as conn:
         await conn.execute("""
             INSERT INTO user_subscriptions (user_id, tier, trial_until)
             VALUES ($1, 'pro', NOW() + INTERVAL '72 hours')
@@ -69,7 +69,7 @@ async def activate_trial(db, user_id: int) -> None:
 
 
 async def activate_pro(db, user_id: int, days: int = 30) -> None:
-    async with db.pool.acquire() as conn:
+    async with db.pool.acquire(timeout=5.0) as conn:
         await conn.execute("""
             INSERT INTO user_subscriptions (user_id, tier, pro_until)
             VALUES ($1, 'pro', NOW() + ($2 || ' days')::interval)
@@ -83,7 +83,7 @@ async def activate_pro(db, user_id: int, days: int = 30) -> None:
 
 
 async def activate_pro_plus(db, user_id: int, days: int = 30) -> None:
-    async with db.pool.acquire() as conn:
+    async with db.pool.acquire(timeout=5.0) as conn:
         await conn.execute("""
             INSERT INTO user_subscriptions (user_id, tier, pro_plus_until)
             VALUES ($1, 'pro_plus', NOW() + ($2 || ' days')::interval)

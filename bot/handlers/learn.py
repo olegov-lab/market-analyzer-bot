@@ -17,7 +17,8 @@ async def learn_cmd(message: Message):
     builder.adjust(2)
     await message.answer(
         "📖 *BTC Monitor* · Азбука крипты\n\n"
-        "10 коротких уроков для начинающих:\n\n"
+        "20 уроков для начинающих + 20 для опытных "
+        "+ 20 для профи (ML, аналитика, графики):\n\n"
         "• Как читать индикаторы\n"
         "• On-chain метрики\n"
         "• Анализ объёма\n\n"
@@ -58,7 +59,8 @@ async def learn_list(callback: CallbackQuery):
     builder.adjust(2)
     await callback.message.edit_text(
         "📖 *BTC Monitor* · Азбука крипты\n\n"
-        "10 коротких уроков для начинающих:\n\n"
+        "20 уроков для начинающих + 20 для опытных "
+        "+ 20 для профи (ML, аналитика, графики):\n\n"
         "• Как читать индикаторы\n"
         "• On-chain метрики\n"
         "• Анализ объёма\n\n"

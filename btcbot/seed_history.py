@@ -13,7 +13,7 @@ COINGECKO_CHART = f"{settings.coingecko_api_url}/coins/bitcoin/market_chart"
 
 
 async def seed(db: Database, days: int = 90) -> int:
-    async with db.pool.acquire() as conn:
+    async with db.pool.acquire(timeout=5.0) as conn:
         count_row = await conn.fetchrow("SELECT COUNT(*) FROM prices WHERE symbol = 'BTCUSD' AND source = 'coingecko_seed'")
         if count_row and count_row[0] > 100:
             print(f"[seed] Already have {count_row[0]} seeded records, skipping")
@@ -64,7 +64,7 @@ async def seed(db: Database, days: int = 90) -> int:
 
 
 async def main() -> None:
-    db = Database(settings.database_url)
+    db = Database(settings.database_url, pool_min_size=settings.db_pool_min, pool_max_size=settings.db_pool_max)
     await db.connect()
     try:
         n = await seed(db, days=90)

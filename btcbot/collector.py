@@ -328,7 +328,7 @@ class PriceCollector:
 async def main() -> None:
     import redis.asyncio as aioredis
 
-    db = Database(settings.database_url)
+    db = Database(settings.database_url, pool_min_size=settings.db_pool_min, pool_max_size=settings.db_pool_max)
     await db.connect()
 
     r = aioredis.from_url(settings.redis_url)

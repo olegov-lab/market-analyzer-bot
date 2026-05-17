@@ -12,7 +12,7 @@ from btcbot.fear_greed import FearGreedIndex
 
 bot = Bot(token=settings.telegram_bot_token)
 dp = Dispatcher()
-db = Database(settings.database_url)
+db = Database(settings.database_url, pool_min_size=settings.db_pool_min, pool_max_size=settings.db_pool_max)
 redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
 analyzer = Analyzer(db, redis_client)
 fear_greed = FearGreedIndex(redis_client)

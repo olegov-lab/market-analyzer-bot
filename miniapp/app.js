@@ -46,6 +46,7 @@ document.addEventListener('click', function(e) {
   else if (action === 'cryptoPay') createCryptoPayment(tier);
   else if (action === 'switchPayment') switchPaymentMethod(tier);
   else if (action === 'linkWallet') linkTonWallet();
+  else if (action === 'unlinkWallet') unlinkTonWallet();
   else if (action === 'verifyPayment') verifyAndActivate(parseInt(paymentId));
   else if (action === 'openTonUri') openTonUri(uri);
   else if (action === 'copyAddress') copyToClipboard(btn.getAttribute('data-address'));
@@ -93,6 +94,10 @@ function render(html) {
 
 function renderSub(html) {
   const el = document.getElementById('sub-content');
+  if (el) el.innerHTML = html;
+}
+function renderTabs(html) {
+  const el = document.getElementById('sub-tabs-bar');
   if (el) el.innerHTML = html;
 }
 
@@ -146,19 +151,20 @@ function navigate(page, sub) {
   window.location.hash = map[page] || '#' + page;
 }
 
-document.querySelectorAll('.orbital-btn').forEach(btn => {
+document.querySelectorAll('.nav-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     const page = btn.dataset.page;
     if (page === 'indicators') navigate('indicators', 'price');
     else if (page === 'miniapp') navigate('miniapp', 'games');
     else if (page === 'news') navigate('news', 'general');
+    else if (page === 'chat') { window.location.hash = '#chat'; return; }
     else navigate(page);
   });
 });
 
 function setActiveNav(page) {
-  document.querySelectorAll('.orbital-btn').forEach(b => b.classList.remove('active'));
-  const btn = document.querySelector('.orbital-btn[data-page="' + page + '"]');
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  const btn = document.querySelector('.nav-btn[data-page="' + page + '"]');
   if (btn) btn.classList.add('active');
 }
 
@@ -470,11 +476,30 @@ async function renderLearnList() {
   try {
     const data = await apiCall('/miniapp/lessons');
     lessons = data;
-    let html = '<div class="card"><div class="card-title">Азбука крипты</div><p style="margin-bottom:12px;color:var(--hint);">10 коротких уроков для начинающих</p>';
-    for (const l of lessons) {
-      html += '<a class="lesson-card" href="#miniapp/lessons/' + l.id + '">' + l.id + '. ' + escapeHtml(l.title) + '</a>';
+    const basic = data.filter(l => l.id <= 20);
+    const advanced = data.filter(l => l.id > 20 && l.id <= 40);
+    const pro = data.filter(l => l.id > 40);
+
+    function sectionHtml(title, desc, items, open) {
+      const id = title.replace(/\s/g,'');
+      const arrow = open ? '▼' : '▶';
+      return '<div class="accordion-card">' +
+        '<div class="accordion-header" onclick="toggleAccordion(\'' + id + '\')">' +
+          '<span>' + title + '</span>' +
+          '<span style="font-size:12px;color:var(--hint);margin:0 8px;flex-shrink:0;">' + desc + '</span>' +
+          '<span class="accordion-arrow">' + arrow + '</span>' +
+        '</div>' +
+        '<div class="accordion-body" id="acc-' + id + '"' + (open ? '' : ' style="display:none"') + '>' +
+          items.map(l => '<a class="lesson-card" href="#miniapp/lessons/' + l.id + '">' + l.id + '. ' + escapeHtml(l.title) + '</a>').join('') +
+        '</div></div>';
     }
-    html += '</div>';
+
+    let html = '<div class="card" style="padding:0;"><div class="card-title" style="padding:14px 14px 0;">📖 Азбука крипты</div><p style="margin-bottom:0;padding:0 14px 6px;color:var(--hint);">60 уроков: от новичка до профи с формулами и графиками</p></div>';
+    html += sectionHtml('📖 Для начинающих', '20 уроков', basic, false);
+    html += sectionHtml('🧠 Для опытных', advanced.length + ' уроков с формулами', advanced, false);
+    if (pro.length) {
+      html += sectionHtml('🚀 Для профи', pro.length + ' уроков — аналитика + ML', pro, false);
+    }
     renderSub(html);
   } catch (e) {
     renderSub('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + escapeHtml(e.message) + '</div></div>');
@@ -482,12 +507,17 @@ async function renderLearnList() {
 }
 
 async function renderLesson(id) {
+  id = Number(id);
   renderSub('<div class="card"><div class="spinner"></div></div>');
   tgBackButton('show');
   tgBackButton('onClick', () => { window.location.hash = '#miniapp/lessons'; });
 
   try {
-    const lesson = await apiCall('/miniapp/lessons/' + id);
+    const [lesson, allLessons] = await Promise.all([
+      apiCall('/miniapp/lessons/' + id),
+      lessons.length ? Promise.resolve(lessons) : apiCall('/miniapp/lessons'),
+    ]);
+    if (!lessons.length) lessons = allLessons;
     let html = '<div class="card"><div class="card-title">Урок ' + lesson.id + '</div><div class="lesson-text">' + escapeHtml(lesson.text || '') + '</div><div class="lesson-nav">';
 
     if (id > 1) html += '<button onclick="window.location.hash=\'#miniapp/lessons/' + (id-1) + '\'">◀️ Назад</button>';
@@ -505,11 +535,24 @@ async function renderLesson(id) {
 async function renderChat() {
   tgBackButton('hide');
   stopAllPolls();
+  renderTabs('');
 
-  let html = '<div class="chat-overlay"><div class="chat-overlay-header"><span>🧠 AI Аналитика</span><button class="chat-close-btn" id="chat-close-btn">✕</button></div><div class="chat-container"><div class="chat-messages" id="chat-messages">';
+  let html = '<div class="chat-overlay"><div class="chat-overlay-header"><span>🧠 AI Аналитика</span><button class="chat-close-btn" id="chat-close-btn" onclick="window.location.hash=\'#indicators/chart\'">✕</button></div><div class="chat-container"><div class="chat-messages" id="chat-messages">';
 
   if (chatMessages.length === 0) {
-    html += '<div class="chat-welcome"><h3>🧠 AI Аналитика</h3><p>Спросите Market-Brain о Bitcoin. Получайте анализ с учётом текущих рыночных данных.</p><p style="margin-top:12px;font-size:13px;">▪ "Почему BTC падает?"<br>▪ "Прогноз на сегодня"<br>▪ "Что такое MVRV?"</p></div>';
+    const quickQs = [
+      ['📉','Почему BTC падает?'],
+      ['🔮','Прогноз на сегодня'],
+      ['📊','Что такое MVRV?'],
+      ['💰','Стоит ли покупать BTC?'],
+      ['🛡️','Уровни поддержки и сопротивления'],
+      ['📈','Что говорят индикаторы?'],
+      ['⛏️','Как халвинг влияет на цену?'],
+      ['🥇','Сравни BTC с золотом'],
+    ];
+    html += '<div class="chat-welcome"><h3>🧠 AI Аналитика</h3><p>Спросите Market-Brain о Bitcoin. Получайте анализ с учётом текущих рыночных данных.</p><div class="chat-quick-grid">' +
+      quickQs.map(([icon, q]) => '<button class="chat-quick-btn" onclick="sendMessage(\'' + q.replace(/'/g,"\\'") + '\')"><span class="chat-quick-icon">' + icon + '</span><span>' + q + '</span></button>').join('') +
+    '</div></div>';
   } else {
     for (const m of chatMessages) {
       const cls = m.role === 'user' ? 'user' : m.role === 'thinking' ? 'thinking' : m.role === 'error' ? 'error' : 'bot';
@@ -524,13 +567,6 @@ async function renderChat() {
   html += '</div></div></div>';
 
   render(html);
-
-  const closeBtn = document.getElementById('chat-close-btn');
-  if (closeBtn) {
-    closeBtn.addEventListener('click', () => {
-      window.location.hash = '#indicators/chart';
-    });
-  }
 
   const messagesEl = document.getElementById('chat-messages');
   if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -610,40 +646,73 @@ async function sendMessage(text) {
   renderChat();
 }
 
+const ALERT_TYPES = [
+  { id: 'rsi', icon: '📊', name: 'RSI', desc: 'Перекупленность / перепроданность', tooltip: 'RSI ниже 30 = перепроданность (сигнал к покупке), выше 70 = перекупленность (сигнал к продаже). Анализируем на 15-минутных свечах.' },
+  { id: 'ma_cross', icon: '📈', name: 'MA Cross', desc: 'Сигнал смены тренда', tooltip: 'Пересечение MA50 и MA200. «Золотой крест» (MA50 выше MA200) = бычий сигнал. «Смертельный крест» (MA50 ниже MA200) = медвежий сигнал.' },
+  { id: 'volume_spike', icon: '🔥', name: 'Volume Spike', desc: 'Аномальный объём', tooltip: 'Всплеск объёма в 2+ раза выше среднего за 24ч. Указывает на повышенный интерес к активу, часто предшествует сильным движениям цены.' },
+];
+
 async function renderAlerts() {
   tgBackButton('hide');
   renderSub('<div class="card"><div class="spinner"></div></div>');
   try {
     const subs = await apiCall('/miniapp/subscriptions');
-    let html = '<div class="card"><div class="card-title">Мои подписки</div>';
+    const activeTypes = new Set();
+    for (const s of subs) for (const at of s.alert_types) activeTypes.add(at);
 
+    let html = '';
+
+    // ─── Active subscriptions ───
+    html += '<div class="card"><div class="card-title">🔔 Мои подписки</div>';
     if (!subs.length) {
-      html += '<p style="color:var(--hint);">Нет активных подписок</p>';
+      html += '<div class="empty-state">Нет активных подписок</div>';
     } else {
       for (const sub of subs) {
         for (const at of sub.alert_types) {
-          html += '<div class="alert-item"><span class="alert-type">' + escapeHtml(at) + '</span><button class="btn-unsub" data-sub-id="' + sub.id + '" data-type="' + escapeHtml(at) + '">Отписаться</button></div>';
+          const info = ALERT_TYPES.find(a => a.id === at) || { icon: '🔔', name: at, desc: '' };
+          html += `
+            <div class="alert-card">
+              <span class="alert-card-icon">${info.icon}</span>
+              <div class="alert-card-info">
+                <div class="alert-card-name">${info.name}</div>
+                <div class="alert-card-desc">${info.desc}</div>
+              </div>
+              <button class="btn-unsub" data-sub-id="${sub.id}" data-type="${at}" title="Отписаться">✕</button>
+            </div>`;
         }
       }
     }
     html += '</div>';
 
-    html += '<div class="card"><div class="card-title">Добавить подписку</div>';
-    for (const item of [['rsi', 'RSI — перекупленность/перепроданность'], ['ma_cross', 'MA Cross — пересечение MA50 и MA200'], ['volume_spike', 'Volume Spike — аномальный объём']]) {
-      html += '<button class="sub-btn" data-alert-type="' + item[0] + '">+ ' + escapeHtml(item[1]) + '</button>';
+    // ─── Add subscription ───
+    html += '<div class="card"><div class="card-title">➕ Добавить подписку</div>';
+    for (const a of ALERT_TYPES) {
+      const isActive = activeTypes.has(a.id);
+      html += `
+        <div class="sub-card${isActive ? ' active' : ''}" data-alert-type="${a.id}">
+          <span class="sub-card-icon">${a.icon}</span>
+          <div class="sub-card-info">
+            <div class="sub-card-name">${a.name}</div>
+            <div class="sub-card-desc">${a.desc}</div>
+          </div>
+          <div class="sub-card-action">${isActive ? '✓' : '+'}</div>
+          <div class="sub-card-tooltip">${a.tooltip}</div>
+        </div>`;
     }
     html += '</div>';
 
     renderSub(html);
 
+    // ─── Unsubscribe ───
     document.querySelectorAll('.btn-unsub').forEach(btn => {
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
         haptic('light');
         const subId = btn.dataset.subId;
         const alertType = btn.dataset.type;
         try {
           await apiCall('/miniapp/subscriptions/' + subId + '/' + alertType, { method: 'DELETE' });
-          tgShowAlert('Подписка удалена');
+          tgShowAlert('Подписка отменена');
           renderAlerts();
         } catch (e) {
           tgShowAlert('Ошибка: ' + e.message);
@@ -651,21 +720,43 @@ async function renderAlerts() {
       });
     });
 
-    document.querySelectorAll('.sub-btn').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        haptic('light');
-        const alertType = btn.dataset.alertType;
+    // ─── Subscribe + tooltip ───
+    document.querySelectorAll('.sub-card:not(.active)').forEach(card => {
+      card.addEventListener('click', async () => {
+        const alertType = card.dataset.alertType;
         try {
           await apiCall('/miniapp/subscriptions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ alert_type: alertType }),
           });
-          tgShowAlert('Подписка на ' + alertType + ' оформлена');
+          tgShowAlert('✓ Подписка на ' + (ALERT_TYPES.find(a => a.id === alertType) || {}).name + ' оформлена');
           renderAlerts();
         } catch (e) {
           tgShowAlert('Ошибка: ' + e.message);
         }
+      });
+    });
+
+    // ─── Tooltip on tap ───
+    document.querySelectorAll('.sub-card').forEach(card => {
+      card.addEventListener('contextmenu', (e) => { e.preventDefault(); });
+      let tooltipTimer = null;
+      card.addEventListener('touchstart', () => {
+        tooltipTimer = setTimeout(() => {
+          const tip = card.querySelector('.sub-card-tooltip');
+          if (tip) tip.classList.add('visible');
+        }, 400);
+      });
+      card.addEventListener('touchend', () => {
+        clearTimeout(tooltipTimer);
+        const tip = card.querySelector('.sub-card-tooltip');
+        if (tip) tip.classList.remove('visible');
+      });
+      card.addEventListener('touchmove', () => {
+        clearTimeout(tooltipTimer);
+        const tip = card.querySelector('.sub-card-tooltip');
+        if (tip) tip.classList.remove('visible');
       });
     });
   } catch (e) {
@@ -774,13 +865,14 @@ async function loadChartData() {
   }
 
   try {
-    const cacheKey = `chart:${chartTimeframe}:100`;
+    const limit = chartTimeframe === '1h' ? 200 : chartTimeframe === '4h' ? 160 : 100;
+    const cacheKey = `chart:${chartTimeframe}:${limit}`;
     let candles;
     const cached = chartDataCache[cacheKey];
     if (cached && (Date.now() - cached._ts < 60000)) {
       candles = cached.data;
     } else {
-      const data = await apiCall(`/miniapp/chart?timeframe=${chartTimeframe}&limit=100`);
+      const data = await apiCall(`/miniapp/chart?timeframe=${chartTimeframe}&limit=${limit}`);
       candles = data.candles;
       if (candles && candles.length) chartDataCache[cacheKey] = { data: candles, _ts: Date.now() };
     }
@@ -843,13 +935,14 @@ function initChart(candles) {
     handleScale: true,
   });
 
-  let series;
+  let series, seriesData;
   switch (chartType) {
     case 'line':
       series = chartInstance.addLineSeries({
         color: '#2481cc',
         lineWidth: 2,
       });
+      seriesData = candles.map(c => ({ time: c.time, value: c.close }));
       break;
     case 'area':
       series = chartInstance.addAreaSeries({
@@ -858,6 +951,7 @@ function initChart(candles) {
         lineColor: '#2481cc',
         lineWidth: 2,
       });
+      seriesData = candles.map(c => ({ time: c.time, value: c.close }));
       break;
     default:
       series = chartInstance.addCandlestickSeries({
@@ -868,9 +962,11 @@ function initChart(candles) {
         wickUpColor: '#00c853',
         wickDownColor: '#ff1744',
       });
+      seriesData = candles;
       break;
   }
-  series.setData(candles);
+  series.setData(seriesData);
+  chartInstance.timeScale().fitContent();
 
   const priceEl = document.getElementById('chart-price');
   const changeEl = document.getElementById('chart-change');
@@ -1088,14 +1184,12 @@ function fmtChartVolume(v) {
 // ─── Indicators Page ────────────────────────────────────────────────
 function renderIndicatorsPage(sub, chartTf, chartInd) {
   tgBackButton('hide');
-  render(`
-    <div class="sub-tabs">
-      <button class="sub-tab${sub === 'chart' ? ' active' : ''}" data-sub="chart" onclick="navigate('indicators','chart')">📊 График</button>
-      <button class="sub-tab${sub === 'price' ? ' active' : ''}" data-sub="price" onclick="navigate('indicators','price')">💰 Цена</button>
-      <button class="sub-tab${sub === 'predict' ? ' active' : ''}" data-sub="predict" onclick="navigate('indicators','predict')">🔮 Прогноз</button>
-      <button class="sub-tab${sub === 'alerts' ? ' active' : ''}" data-sub="alerts" onclick="navigate('indicators','alerts')">🔔 Подписки</button>
-    </div>
-    <div id="sub-content"></div>
+  render('<div id="sub-content"></div>');
+  renderTabs(`
+    <button class="sub-tab${sub === 'chart' ? ' active' : ''}" data-icon="📊" data-label="График" onclick="navigate('indicators','chart')"></button>
+    <button class="sub-tab${sub === 'price' ? ' active' : ''}" data-icon="💰" data-label="Цена" onclick="navigate('indicators','price')"></button>
+    <button class="sub-tab${sub === 'predict' ? ' active' : ''}" data-icon="🔮" data-label="Прогноз" onclick="navigate('indicators','predict')"></button>
+    <button class="sub-tab${sub === 'alerts' ? ' active' : ''}" data-icon="🔔" data-label="Подписки" onclick="navigate('indicators','alerts')"></button>
   `);
   if (sub === 'chart') renderChart(chartTf, chartInd);
   else if (sub === 'predict') startPoll('indicators_predict', renderPredict, 60000);
@@ -1106,13 +1200,11 @@ function renderIndicatorsPage(sub, chartTf, chartInd) {
 // ─── Mini App Page ──────────────────────────────────────────────────
 function renderMiniAppPage(sub, param) {
   tgBackButton('hide');
-  render(`
-    <div class="sub-tabs">
-      <button class="sub-tab${sub === 'lessons' ? ' active' : ''}" data-sub="lessons" onclick="navigate('miniapp','lessons')">📖 Обучение</button>
-      <button class="sub-tab${sub === 'games' ? ' active' : ''}" data-sub="games" onclick="navigate('miniapp','games')">🎮 Игры</button>
-      <button class="sub-tab${sub === 'arena' ? ' active' : ''}" data-sub="arena" onclick="navigate('miniapp','arena')">🏆 Арена</button>
-    </div>
-    <div id="sub-content"></div>
+  render('<div id="sub-content"></div>');
+  renderTabs(`
+    <button class="sub-tab${sub === 'lessons' ? ' active' : ''}" data-icon="📖" data-label="Обучение" onclick="navigate('miniapp','lessons')"></button>
+    <button class="sub-tab${sub === 'games' ? ' active' : ''}" data-icon="🎮" data-label="Игры" onclick="navigate('miniapp','games')"></button>
+    <button class="sub-tab${sub === 'arena' ? ' active' : ''}" data-icon="🏆" data-label="Арена" onclick="navigate('miniapp','arena')"></button>
   `);
   if (sub === 'games') {
     if (param === 'trading') renderTradingGame();
@@ -1129,12 +1221,10 @@ function renderMiniAppPage(sub, param) {
 // ─── News Page ──────────────────────────────────────────────────────
 function renderNewsPage(sub) {
   tgBackButton('hide');
-  render(`
-    <div class="sub-tabs">
-      <button class="sub-tab${sub === 'general' ? ' active' : ''}" data-sub="general" onclick="navigate('news','general')">📰 Общие</button>
-      <button class="sub-tab${sub === 'timothy' ? ' active' : ''}" data-sub="timothy" onclick="navigate('news','timothy')">🐦 Timothy</button>
-    </div>
-    <div id="sub-content"></div>
+  render('<div id="sub-content"></div>');
+  renderTabs(`
+    <button class="sub-tab${sub === 'general' ? ' active' : ''}" data-icon="📰" data-label="Общие" onclick="navigate('news','general')"></button>
+    <button class="sub-tab${sub === 'timothy' ? ' active' : ''}" data-icon="🐦" data-label="Timothy" onclick="navigate('news','timothy')"></button>
   `);
   if (sub === 'timothy') {
     renderTimothyNews();
@@ -1157,8 +1247,8 @@ async function renderTimothyNews() {
 // ─── Games Page ─────────────────────────────────────────────────────
 const GAMES = [
   { slug: 'trading', icon: '🎯', title: 'Торговый симулятор', desc: 'Виртуальная торговля BTC. Стартовый баланс $10,000. Покупайте и продавайте по реальной цене.', btn: '▶ Играть' },
-  { slug: 'guess', icon: '🔮', title: 'Угадай цену BTC', desc: 'Предскажи цену закрытия BTC на сегодня. Совпадёшь — получишь ⭐!', btn: '🔮 Играть' },
   { slug: 'roulette', icon: '🎰', title: 'Биткоин-рулетка', desc: 'Ставь ⭐ и крути! Множители до x5. Рискни и умножь.', btn: '🎰 Крутить' },
+  { slug: 'guess', icon: '🔮', title: 'Угадай цену BTC', desc: 'Предскажи цену закрытия BTC на сегодня. Совпадёшь — получишь ⭐!', btn: '🔮 Играть' },
   { slug: 'mining', icon: '⛏️', title: 'Майнинг-ферма', desc: 'Тапай каждый час, добывай сатоши, копи на ⭐. Streak до x2!', btn: '⛏️ Копать' },
 ];
 
@@ -1342,8 +1432,7 @@ async function renderRouletteGame() {
       html += '<div class="card"><div class="card-title">📜 История (последние 10)</div>';
       for (const h of state.history) {
         const icon = h.net > 0 ? '🟢' : '🔴';
-        const sign = h.net >= 0 ? '+' : '';
-        html += '<div class="game-trade"><span>' + icon + ' ⭐' + h.bet + ' ×' + h.multiplier + '</span><span class="value ' + (h.net >= 0 ? 'up' : 'down') + '">' + sign + h.net + '⭐</span></div>';
+        html += '<div class="game-trade"><span>' + icon + ' ⭐' + h.bet + ' ×' + h.multiplier + '</span><span class="value ' + (h.net > 0 ? 'up' : 'down') + '">' + h.win + '⭐ <span style="font-size:11px;color:var(--hint);">' + (h.net > 0 ? '+' : '') + h.net + '⭐</span></span></div>';
       }
       html += '</div>';
     }
@@ -1363,10 +1452,10 @@ async function renderRouletteGame() {
           const res = await apiCall('/miniapp/game/roulette', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({bet: bet}) });
           const r = res.result;
           if (r.won) {
-            resultDiv.innerHTML = r.emoji + ' ×' + r.multiplier + '! <b>+' + r.net + ' ⭐</b>';
+            resultDiv.innerHTML = r.emoji + ' ×' + r.multiplier + '! ⭐' + r.bet + '×' + r.multiplier + '=<b>' + r.win + '⭐</b> <span style="font-size:12px;color:var(--hint);">(+' + r.net + '⭐)</span>';
             haptic('success');
           } else {
-            resultDiv.innerHTML = '😢 Проигрыш: -' + r.bet + ' ⭐';
+            resultDiv.innerHTML = '😢 ⭐' + r.bet + '×0=0⭐ <span style="font-size:12px;color:var(--hint);">-'+r.bet+'⭐</span>';
             haptic('warning');
           }
           setTimeout(function() { renderRouletteGame(); }, 1500);
@@ -1404,12 +1493,25 @@ async function renderMiningGame() {
     if (canMine) {
       html += '<button class="game-btn buy" id="btn-mine" style="width:100%;">⛏️ Копать!</button>';
     } else {
-      html += '<div style="text-align:center;padding:16px;color:var(--orange);font-size:13px;">⏳ Кулдаун: ' + state.cooldown_min + ' мин</div>';
+      html += '<div style="text-align:center;padding:16px;color:var(--orange);font-size:18px;font-variant-numeric:tabular-nums;" id="mine-cooldown">⏳ ' + formatTime(state.cooldown_sec) + '</div>';
     }
     html += '</div>';
 
-    html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;">⚡ 1 клик/час · Streak +5% (макс ×2) · Рефералы +10% каждый · 1000 сатоши = 1 ⭐</div>';
+    html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;">⚡ 1 клик/30 мин · Streak +5% (макс ×2) · Рефералы +10% каждый · 1000 сатоши = 1 ⭐</div>';
     renderSub(html);
+
+    if (!canMine && state.cooldown_sec > 0) {
+      const startTs = Date.now();
+      const startSec = state.cooldown_sec;
+      const cdTimer = setInterval(function() {
+        const el = document.getElementById('mine-cooldown');
+        if (!el) { clearInterval(cdTimer); return; }
+        const elapsed = Math.floor((Date.now() - startTs) / 1000);
+        const left = Math.max(0, startSec - elapsed);
+        if (left <= 0) { clearInterval(cdTimer); renderMiningGame(); return; }
+        el.textContent = '⏳ ' + formatTime(left);
+      }, 1000);
+    }
 
     const btnMine = document.getElementById('btn-mine');
     if (btnMine) {
@@ -1576,6 +1678,7 @@ var paymentInterval = null;
 
 async function renderUpgradePage() {
   stopAllPolls();
+  renderTabs('');
   if (paymentInterval) { clearInterval(paymentInterval); paymentInterval = null; }
   renderSub('<div class="skeleton skeleton-hero"></div><div class="skeleton skeleton-block"></div>');
   try {
@@ -1602,10 +1705,10 @@ async function renderUpgradePage() {
       try { walletData = await apiCall('/crypto/wallet/status'); } catch(_) {}
       if (walletData.linked) {
         var shortAddr = walletData.wallet_address.substring(0, 8) + '...' + walletData.wallet_address.slice(-6);
-        html += '<div class="wallet-chip"><span style="width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block;"></span> ' + shortAddr + '</div>';
+        html += '<div class="connect-wallet-wrap"><span class="wallet-chip" style="flex:1;"><span style="width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block;"></span> ' + shortAddr + '</span><button class="upgrade-btn" data-action="unlinkWallet" style="flex-shrink:0;width:auto;padding:10px 14px;">🔌 Отключить</button></div>';
         window._tonWallet = walletData.wallet_address;
       } else {
-        html += '<div class="connect-wallet-wrap"><input class="wallet-input" id="ton-wallet-input" placeholder="Вставьте адрес TON кошелька..." style="flex:1;padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px;font-family:inherit;"><button class="upgrade-btn" data-action="linkWallet" style="margin:0;flex-shrink:0;">🔌 Подключить</button></div>';
+        html += '<div class="connect-wallet-wrap"><input class="wallet-input" id="ton-wallet-input" placeholder="Вставьте адрес TON кошелька..."><button class="upgrade-btn" data-action="linkWallet">🔌 Подключить</button></div>';
         html += '<div style="font-size:10px;color:var(--hint);margin-top:4px;">Адрес начинается с UQ...</div>';
       }
     }
@@ -1623,7 +1726,7 @@ async function renderUpgradePage() {
 
     html += '<div class="upgrade-card' + (isPro ? ' current' : '') + '">';
     html += '<div class="upgrade-card-header pro">PRO</div>';
-    html += '<div class="upgrade-card-price">' + (paymentMethod === 'ton' ? '2 TON' : '80 ⭐') + '<span style="font-size:11px;font-weight:400;">/мес</span></div>';
+    html += '<div class="upgrade-card-price">' + (paymentMethod === 'ton' ? '2 TON' : '50 ⭐') + '<span style="font-size:11px;font-weight:400;">/мес</span></div>';
     html += '<ul class="upgrade-features">';
     html += '<li>✅ Всё из FREE</li><li>🤖 AI без лимитов</li><li>📈 Сделки без лимитов</li><li>🔔 PRO-алерты</li><li>🏆 Полный лидерборд</li>';
     html += '</ul>';
@@ -1632,14 +1735,14 @@ async function renderUpgradePage() {
       if (paymentMethod === 'ton') {
         html += '<button class="upgrade-btn" data-action="cryptoPay" data-tier="pro">Купить за 2 TON</button>';
       } else {
-        html += '<button class="upgrade-btn" data-action="subscribe" data-tier="pro">Подписаться за 80 ⭐</button>';
+        html += '<button class="upgrade-btn" data-action="subscribe" data-tier="pro">Подписаться за 50 ⭐</button>';
       }
     }
     html += '</div>';
 
     html += '<div class="upgrade-card' + (isProPlus ? ' current' : '') + '">';
     html += '<div class="upgrade-card-header pro-plus">PRO+</div>';
-    html += '<div class="upgrade-card-price">' + (paymentMethod === 'ton' ? '5 TON' : '200 ⭐') + '<span style="font-size:11px;font-weight:400;">/мес</span></div>';
+    html += '<div class="upgrade-card-price">' + (paymentMethod === 'ton' ? '5 TON' : '100 ⭐') + '<span style="font-size:11px;font-weight:400;">/мес</span></div>';
     html += '<ul class="upgrade-features">';
     html += '<li>✅ Всё из PRO</li><li>🎤 Голосовой ввод</li><li>⚡ Проактивные алерты</li><li>🎯 Confidence Score ML</li><li>📊 Персональный дашборд</li>';
     html += '</ul>';
@@ -1648,14 +1751,14 @@ async function renderUpgradePage() {
       if (paymentMethod === 'ton') {
         html += '<button class="upgrade-btn plus" data-action="cryptoPay" data-tier="pro_plus">Купить за 5 TON</button>';
       } else {
-        html += '<button class="upgrade-btn plus" data-action="subscribe" data-tier="pro_plus">Подписаться за 200 ⭐</button>';
+        html += '<button class="upgrade-btn plus" data-action="subscribe" data-tier="pro_plus">Подписаться за 100 ⭐</button>';
       }
     }
     html += '</div>';
 
     html += '</div>';
     if (paymentMethod === 'stars') {
-      html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;margin-top:8px;">💡 Нажав кнопку, вы перейдёте в чат-бота для оплаты Telegram Stars</div>';
+      html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;margin-top:8px;">💡 После оплаты звёздами подписка активируется автоматически</div>';
     } else {
       html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;margin-top:8px;">💠 Оплата напрямую с TON кошелька. Транзакция проверяется автоматически.</div>';
     }
@@ -1680,6 +1783,15 @@ async function linkTonWallet() {
   try {
     await apiCall('/crypto/wallet/link', { method: 'POST', body: JSON.stringify({ wallet_address: addr }), headers: { 'Content-Type': 'application/json' } });
     window._tonWallet = addr;
+    renderUpgradePage();
+  } catch(e) { tgShowAlert('Ошибка: ' + e.message); }
+}
+
+async function unlinkTonWallet() {
+  haptic('heavy');
+  try {
+    await apiCall('/crypto/wallet/unlink', { method: 'POST' });
+    window._tonWallet = null;
     renderUpgradePage();
   } catch(e) { tgShowAlert('Ошибка: ' + e.message); }
 }
@@ -1768,16 +1880,17 @@ function copyToClipboard(text) {
 
 function subscribeTier(tier) {
   haptic('heavy');
-  var w = window.Telegram && window.Telegram.WebApp;
-  if (!w || !w.sendData) {
-    tgShowAlert('WebApp мост не загружен. Закройте и откройте Mini App снова.');
-    return;
-  }
-  try {
-    w.sendData(JSON.stringify({ action: 'subscribe', tier: tier }));
-  } catch (e) {
-    tgShowAlert('Ошибка отправки: ' + e.message);
-  }
+  apiCall('/miniapp/subscribe', {
+    method: 'POST',
+    body: JSON.stringify({ tier: tier }),
+    headers: { 'Content-Type': 'application/json' },
+  }).then(function(resp) {
+    if (resp.status === 'sent') {
+      tgShowAlert('💎 Счёт отправлен в чат с ботом. Оплатите Telegram Stars для активации.');
+    }
+  }).catch(function(e) {
+    tgShowAlert('Ошибка: ' + e.message);
+  });
 }
 
 function routePage() {
@@ -1818,17 +1931,28 @@ function routePage() {
 
 window.addEventListener('hashchange', routePage);
 
-const aiBubble = document.getElementById('ai-bubble');
-if (aiBubble) {
-  aiBubble.addEventListener('click', () => {
-    haptic('medium');
-    window.location.hash = '#chat';
-  });
+function toggleAccordion(id) {
+  const body = document.getElementById('acc-' + id);
+  if (!body) return;
+  const arrow = body.previousElementSibling.querySelector('.accordion-arrow');
+  if (body.style.display === 'none') {
+    body.style.display = '';
+    if (arrow) arrow.textContent = '▼';
+  } else {
+    body.style.display = 'none';
+    if (arrow) arrow.textContent = '▶';
+  }
 }
 
 function fmtPrice(v) {
   if (v == null) return '—';
   return Number(v).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
+function formatTime(sec) {
+  var m = Math.floor(sec / 60);
+  var s = sec % 60;
+  return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
 }
 
 function escapeHtml(str) {

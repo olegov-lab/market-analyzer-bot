@@ -415,8 +415,10 @@ class GameEngine:
         if last:
             last_dt = datetime.fromisoformat(last)
             hours_since = (now - last_dt).total_seconds() / 3600
-            if hours_since < 1:
-                raise ValueError("Копать можно раз в час! Возвращайтесь через {:.0f} мин.".format(60 - (now - last_dt).total_seconds() / 60))
+            if hours_since < 0.5:
+                mins_left = int(30 - (now - last_dt).total_seconds() / 60)
+                secs_left = int(1800 - (now - last_dt).total_seconds())
+                raise ValueError(f"⏳ Кулдаун: {mins_left:02d}:{secs_left % 60:02d}")
             if hours_since > 24:
                 streak = 0
             else:
@@ -424,7 +426,7 @@ class GameEngine:
         else:
             streak = 1
 
-        base_sats = random.randint(3, 8)
+        base_sats = random.randint(50, 150)
         streak_mult = min(2.0, 1 + streak * 0.05)
         refs = await self.db.get_referral_stats(user_id)
         ref_mult = 1 + min(1.0, refs["count"] * 0.1)
@@ -466,7 +468,7 @@ class GameEngine:
             raise ValueError(f"Недостаточно ⭐. Баланс: {user.get('stars', 0)}")
 
         # Deduct bet
-        async with self.db.pool.acquire() as conn:
+        async with self.db.pool.acquire(timeout=5.0) as conn:
             await conn.execute("UPDATE game_users SET stars = stars - $1 WHERE user_id = $2", bet, user_id)
 
         # Roll the dice
@@ -519,13 +521,13 @@ class GameEngine:
 
         now = datetime.now(timezone.utc)
         can_mine = True
-        cooldown_min = 0
+        cooldown_sec = 0
         if state.get("last_click"):
             last_dt = datetime.fromisoformat(state["last_click"])
             secs_since = (now - last_dt).total_seconds()
-            if secs_since < 3600:
+            if secs_since < 1800:
                 can_mine = False
-                cooldown_min = int(60 - secs_since / 60)
+                cooldown_sec = int(1800 - secs_since)
 
         refs = await self.db.get_referral_stats(user_id)
         ref_mult = 1 + min(1.0, refs["count"] * 0.1)
@@ -536,7 +538,7 @@ class GameEngine:
             "total_sats": int(state["earned"]),
             "streak": state.get("streak", 0),
             "can_mine": can_mine,
-            "cooldown_min": cooldown_min,
+            "cooldown_sec": cooldown_sec,
             "ref_mult": round(ref_mult, 2),
             "streak_mult": round(streak_mult, 2),
             "stars": int(sats_to_stars),

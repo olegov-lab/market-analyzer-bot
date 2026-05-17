@@ -519,7 +519,7 @@ class TestGameEngine:
         redis = AsyncMock()
         redis.get = AsyncMock(return_value=json.dumps({"earned": 10, "last_click": (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(), "streak": 1}))
         engine = self.make_engine()
-        with pytest.raises(ValueError, match="час"):
+        with pytest.raises(ValueError, match="Кулдаун"):
             await engine.mine_click(1, redis)
 
     @pytest.mark.asyncio
@@ -531,7 +531,7 @@ class TestGameEngine:
         engine.db.get_referral_stats = AsyncMock(return_value={"count": 0})
         result = await engine.mine_click(1, redis)
         assert result["streak"] == 1
-        assert 3 <= result["earned"] <= 8
+        assert 50 <= result["earned"] <= 160
 
     @pytest.mark.asyncio
     async def test_mining_streak_breaks_after_24h(self):

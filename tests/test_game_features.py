@@ -306,7 +306,7 @@ class TestMining:
         from datetime import datetime, timezone
         recent = (datetime.now(timezone.utc)).isoformat()
         redis = self.make_redis({"earned": 10, "last_click": recent, "streak": 1})
-        with pytest.raises(ValueError, match="раз в час"):
+        with pytest.raises(ValueError, match="Кулдаун"):
             await engine.mine_click(1, redis)
 
     @pytest.mark.asyncio
@@ -383,7 +383,7 @@ class TestMining:
         })
         state = await engine.get_mining_state(1, redis)
         assert state["can_mine"] is False
-        assert state["cooldown_min"] > 0
+        assert state["cooldown_sec"] > 0
         assert state["total_sats"] == 100
         assert state["streak"] == 3
 
@@ -425,4 +425,4 @@ class TestMining:
             redis.get = AsyncMock(return_value=json.dumps({"earned": 0, "last_click": old, "streak": 0}))
             r = await engine.mine_click(1, redis)
             results.add(r["earned"])
-        assert any(3 <= v <= 8 for v in results)
+        assert any(50 <= v <= 160 for v in results)

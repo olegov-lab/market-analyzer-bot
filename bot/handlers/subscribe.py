@@ -3,18 +3,25 @@ from aiogram.filters import Command
 from aiogram.types import Message, PreCheckoutQuery, LabeledPrice, ContentType
 
 from bot.state import bot, db, dp, menu_kb
-from btcbot.subscription import activate_pro, activate_pro_plus, get_user_tier, Tier, TIER_PRICES
+from btcbot.subscription import activate_pro, activate_pro_plus, get_user_tier, Tier
+from loguru import logger
 
 
-@dp.message(F.content_type == ContentType.WEB_APP_DATA)
+@dp.message(F.web_app_data)
 async def web_app_data(message: Message):
     import json
+    logger.info(f"web_app_data received from {message.from_user.id}")
     try:
-        data = json.loads(message.web_app_data.data)
-        if data.get("action") != "subscribe":
+        raw = message.web_app_data.data if message.web_app_data else ""
+        logger.info(f"web_app_data raw: {raw}")
+        data = json.loads(raw)
+        action = data.get("action", "")
+        logger.info(f"web_app_data action={action}, tier={data.get('tier')}")
+        if action != "subscribe":
             return
         tier = data.get("tier", "pro")
-    except Exception:
+    except Exception as e:
+        logger.error(f"web_app_data parse error: {e}")
         return
 
     user_tier = await get_user_tier(db, message.from_user.id)

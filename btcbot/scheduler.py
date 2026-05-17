@@ -176,7 +176,7 @@ async def _auto_seed(db):
         n = await seed(db, days=90)
         if n > 0:
             logger.info(f"Auto-seeded {n} historical prices, refreshing aggregates...")
-            async with db.pool.acquire() as conn:
+            async with db.pool.acquire(timeout=5.0) as conn:
                 await conn.execute("CALL refresh_continuous_aggregate('candles_1m', NULL, NULL)")
                 await conn.execute("CALL refresh_continuous_aggregate('candles_4h', NULL, NULL)")
             logger.info("Continuous aggregates refreshed after seed")
@@ -189,7 +189,7 @@ async def main() -> None:
     from btcbot.alerts import AlertManager
     from aiogram import Bot
 
-    db = Database(settings.database_url)
+    db = Database(settings.database_url, pool_min_size=settings.db_pool_min, pool_max_size=settings.db_pool_max)
     await db.connect()
 
     asyncio.create_task(_auto_seed(db))
