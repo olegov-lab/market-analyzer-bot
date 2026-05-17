@@ -1,8 +1,4 @@
 const API_BASE = window.location.origin;
-// DEBUG marker: if you see "SCRIPT OK" the JS executed
-var _dbg = document.getElementById('loading-text');
-if (_dbg) _dbg.textContent = 'SCRIPT OK';
-
 let Telegram = null;
 let initData = '';
 let userId = null;
@@ -45,8 +41,7 @@ async function loadI18n() {
   if (loadingEl) loadingEl.textContent = t('Загрузка...');
 }
 
-// let _i18nLoaded = loadI18n(); // DEBUG: disabled i18n
-_lang = 'ru'; _dict = {};
+let _i18nLoaded = loadI18n();
 
 async function setLang(code) {
   _lang = code;
