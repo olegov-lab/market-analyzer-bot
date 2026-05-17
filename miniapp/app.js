@@ -1253,8 +1253,7 @@ const GAMES = [
 ];
 
 function renderGameLobby() {
-  tgBackButton('show');
-  tgBackButton('onClick', () => { window.location.hash = '#miniapp/games'; });
+  tgBackButton('hide');
   stopAllPolls();
   let html = '';
   for (const g of GAMES) {
