@@ -1117,7 +1117,16 @@ async def roulette_state(request: Request):
     return {"stars": user.get("stars", 0), "history": list(reversed(history[-10:]))}
 
 
-# ─── Static files for Mini App ─────────────────────────────────────
+# ─── Static files and privacy policy ───────────────────────────────
+
+PRIVACY_HTML = os.path.join(os.path.dirname(__file__), "..", "privacy.html")
+
+@app.get("/privacy")
+@app.get("/privacy.html")
+async def privacy_policy():
+    if os.path.isfile(PRIVACY_HTML):
+        return FileResponse(PRIVACY_HTML)
+    raise HTTPException(404, "Not found")
 
 @app.get("/miniapp")
 @app.get("/miniapp/{full_path:path}")
