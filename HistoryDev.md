@@ -196,3 +196,17 @@ GLM-5.1 через OpenCode Go перестал работать. Добавле
 - Применяется к ответу AI, к закэшированному значению и к OpenRouter fallback
 - Старый кеш Redis (`news:timothy`) очищен
 - Закоммичено, запущено на сервер
+
+---
+## 67: Production readiness — QA checklist, security fixes, backup
+- **QA_CHECKLIST.md** — 70+ тест-кейсов (Telegram Integration, TON Payments, Load/Security, Pre-Launch)
+- **auth_date check** — `verify_telegram_init_data()` теперь отклоняет initData старше 24ч
+- **Global 401 handler** — `apiCall()` при 401 показывает кнопку «Перезагрузить»
+- **colorScheme sync** — `Telegram.WebApp.colorScheme` → `data-theme` на `<html>`
+- **Payment debounce** — `_paymentInProgress` guard + кнопка блокируется на время запроса
+- **`data/postgresql.conf` восстановлен** — удалился при git revert
+- **`/privacy` route** — privacy.html отдаётся на `btc.smartmarkettoday.com/privacy` (200)
+- **DB pool увеличен** — `DB_POOL_MAX=20`, `DB_POOL_MIN=2` в .env
+- **Ежедневный pg_dump** — cron `0 6 * * *`, хранятся 14 дней, в `/root/backups`
+- **`MINIAPP_URL` исправлен** — `your-server.com` → `btc.smartmarkettoday.com/miniapp`
+- **Стресс-тест (k6)** — 8 concurrent VUs, 0% errors, p95=332ms, avg=82ms
