@@ -1853,9 +1853,9 @@ async function verifyAndActivate(paymentId) {
 
 function openTonUri(uri) {
   try {
-    Telegram.openTelegramLink(uri.replace('ton://', 'https://t.me/'));
+    Telegram.openLink(uri);
   } catch(_) {
-    try { Telegram.openLink(uri); } catch(_2) {}
+    try { Telegram.openTelegramLink(uri.replace('ton://', 'https://t.me/')); } catch(_2) {}
   }
 }
 
