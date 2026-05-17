@@ -48,7 +48,6 @@ document.addEventListener('click', function(e) {
   else if (action === 'linkWallet') linkTonWallet();
   else if (action === 'unlinkWallet') unlinkTonWallet();
   else if (action === 'verifyPayment') verifyAndActivate(parseInt(paymentId));
-  else if (action === 'openTonUri') openTonUri(uri);
   else if (action === 'copyAddress') copyToClipboard(btn.getAttribute('data-address'));
 });
 
@@ -1811,10 +1810,8 @@ async function createCryptoPayment(tier) {
     html += '<div style="margin:8px 0;font-size:11px;color:var(--hint);">Отправьте точно <b>' + pay.amount_ton + ' TON</b> на адрес:</div>';
     html += '<div class="payment-address" data-action="copyAddress" data-address="' + pay.recipient_wallet + '" style="cursor:pointer;">' + pay.recipient_wallet + ' <span style="color:var(--btn);font-size:10px;">(копировать)</span></div>';
     html += '<div style="font-size:11px;color:var(--hint);">Комментарий: <b>' + pay.comment + '</b></div>';
-    html += '<div style="display:flex;gap:8px;margin-top:12px;">';
-    html += '<button class="upgrade-btn" style="flex:1;" data-action="openTonUri" data-uri="' + escapeHtml(pay.ton_uri) + '">🔄 Открыть кошелёк</button>';
-    html += '<button class="upgrade-btn" style="flex:1;background:var(--green);" data-action="verifyPayment" data-payment-id="' + pay.payment_id + '">✅ Я оплатил</button>';
-    html += '</div>';
+    html += '<div style="margin-top:12px;font-size:11px;color:var(--hint);text-align:center;">Открой любой TON-кошелёк, отправь <b>' + pay.amount_ton + ' TON</b> на адрес выше с комментарием</div>';
+    html += '<button class="upgrade-btn" style="margin-top:8px;background:var(--green);" data-action="verifyPayment" data-payment-id="' + pay.payment_id + '">✅ Я оплатил</button>';
     html += '<div style="margin-top:8px;font-size:11px;color:var(--hint);text-align:center;" id="pay-status">Ожидание платежа...</div>';
     html += '</div>';
 
@@ -1849,15 +1846,6 @@ async function verifyAndActivate(paymentId) {
       tgShowAlert('⏳ Платёж пока не найден. Попробуйте через минуту.');
     }
   } catch(e) { tgShowAlert('Ошибка: ' + e.message); }
-}
-
-function openTonUri(uri) {
-  var link = uri.replace('ton://transfer/', 'https://app.tonkeeper.com/transfer/');
-  try {
-    Telegram.openLink(link);
-  } catch(_) {
-    try { Telegram.openLink(uri); } catch(_2) {}
-  }
 }
 
 function copyToClipboard(text) {
