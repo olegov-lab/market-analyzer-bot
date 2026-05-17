@@ -13,6 +13,11 @@ try {
   Telegram.ready();
   Telegram.expand();
   initData = Telegram.initData || '';
+  if (Telegram.colorScheme === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  } else {
+    document.documentElement.setAttribute('data-theme', 'light');
+  }
 } catch (e) {
   try {
     const hash = window.location.hash;
@@ -65,14 +70,33 @@ async function apiCall(path, options = {}, timeout = 15000) {
         const errJson = JSON.parse(text);
         errMsg = errJson.detail || errMsg;
       } catch (_) {}
+      if (resp.status === 401) {
+        sessionExpired(errMsg);
+        throw new Error(errMsg);
+      }
       throw new Error(errMsg);
     }
     return resp.json();
   } catch (e) {
     clearTimeout(timeoutId);
     if (e.name === 'AbortError') throw new Error('Таймаут запроса');
+    if (e.message.includes('401') || e.message.includes('Invalid init data')) {
+      sessionExpired(e.message);
+    }
     throw e;
   }
+}
+
+function sessionExpired(msg) {
+  const content = document.getElementById('content');
+  if (!content) return;
+  content.innerHTML =
+    '<div class="card" style="text-align:center;padding:30px;">' +
+    '<div style="font-size:40px;">🔐</div>' +
+    '<div style="margin-top:12px;font-size:14px;color:var(--text);">Сессия истекла</div>' +
+    '<div style="margin-top:4px;font-size:11px;color:var(--hint);">' + escapeHtml(msg) + '</div>' +
+    '<button onclick="window.location.reload()" class="upgrade-btn" style="margin-top:16px;">🔄 Перезагрузить</button>' +
+    '</div>';
 }
 
 function render(html) {
@@ -1795,10 +1819,16 @@ async function unlinkTonWallet() {
   } catch(e) { tgShowAlert('Ошибка: ' + e.message); }
 }
 
+var _paymentInProgress = false;
+
 async function createCryptoPayment(tier) {
   haptic('heavy');
+  if (_paymentInProgress) { tgShowAlert('Платёж уже создаётся...'); return; }
   var wallet = window._tonWallet || '';
   if (!wallet) { tgShowAlert('Сначала подключите TON кошелёк'); return; }
+  _paymentInProgress = true;
+  var btn = document.querySelector('.upgrade-btn[data-action="cryptoPay"][data-tier="' + tier + '"]');
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; btn.textContent = '⏳ Создание...'; }
   try {
     var pay = await apiCall('/crypto/payment/create', {
       method: 'POST',
@@ -1829,6 +1859,8 @@ async function createCryptoPayment(tier) {
       }).catch(function(){});
     }, 5000);
   } catch(e) { tgShowAlert('Ошибка: ' + e.message); }
+  _paymentInProgress = false;
+  if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.textContent = tier === 'pro_plus' ? 'Купить за 1 TON' : 'Купить за 0.5 TON'; }
 }
 
 async function verifyAndActivate(paymentId) {
