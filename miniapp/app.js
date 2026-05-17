@@ -8,6 +8,58 @@ let lessons = [];
 let chatMessages = [];
 let chatSending = false;
 
+// ─── i18n ────────────────────────────────────────────────────────────
+let _lang = 'ru';
+let _dict = {};
+
+function t(key) {
+  return _dict[key] || key;
+}
+window.__ = t;
+
+function _detectLang() {
+  try {
+    const tgLang = (Telegram && Telegram.initDataUnsafe && Telegram.initDataUnsafe.user && Telegram.initDataUnsafe.user.language_code) || '';
+    return tgLang.startsWith('ru') ? 'ru' : 'en';
+  } catch (e) { return 'ru'; }
+}
+
+async function loadI18n() {
+  _lang = localStorage.getItem('btc_lang') || _detectLang();
+  if (_lang !== 'ru' && _lang !== 'en') _lang = 'en';
+  try {
+    const resp = await fetch(`/miniapp/i18n/${_lang}.json`);
+    if (resp.ok) _dict = await resp.json();
+  } catch (e) { _dict = {}; }
+  document.documentElement.lang = _lang;
+  // update nav labels
+  document.querySelectorAll('#bottom-nav .nav-btn').forEach(function(btn) {
+    var labelKey = btn.getAttribute('data-label');
+    if (labelKey) btn.setAttribute('data-label', t(labelKey));
+  });
+  var loadingEl = document.getElementById('loading-text');
+  if (loadingEl) loadingEl.textContent = t('Загрузка...');
+}
+
+let _i18nLoaded = loadI18n();
+
+async function setLang(code) {
+  _lang = code;
+  localStorage.setItem('btc_lang', code);
+  _dict = {};
+  await loadI18n();
+  routePage();
+}
+
+async function unsubscribe(subId, alertType) {
+  try {
+    await apiCall('/miniapp/unsubscribe', { method: 'POST', body: JSON.stringify({ sub_id: subId, alert_type: alertType }), headers: { 'Content-Type': 'application/json' } });
+    renderAlerts();
+  } catch (e) {
+    tgShowAlert(e.message);
+  }
+}
+
 try {
   Telegram = window.Telegram.WebApp;
   Telegram.ready();
@@ -54,7 +106,7 @@ document.addEventListener('click', function(e) {
 async function apiCall(path, options = {}, timeout = 15000) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
-  const headers = { 'X-Telegram-Init-Data': initData, ...options.headers };
+  const headers = { 'X-Telegram-Init-Data': initData, 'X-Language': _lang, ...options.headers };
   try {
     const resp = await fetch(`${API_BASE}${path}`, { ...options, headers, signal: controller.signal });
     clearTimeout(timeoutId);
@@ -78,12 +130,23 @@ async function apiCall(path, options = {}, timeout = 15000) {
 function render(html) {
   try {
     const content = document.getElementById('content');
-    if (content) {
-      content.classList.remove('fade-in');
-      void content.offsetWidth;
-      content.innerHTML = html;
-      content.classList.add('fade-in');
-    }
+    if (!content) return;
+    content.innerHTML = html;
+  } catch (e) {
+    console.error('Render error:', e);
+    const content = document.getElementById('content');
+    if (content) content.innerHTML = '<div class="card" style="text-align:center;padding:20px;"><div style="font-size:40px;">⚠</div><p>' + t('Ошибка отображения') + '</p></div>';
+  }
+}
+
+function showLoading() {
+  const content = document.getElementById('content');
+  if (content) content.innerHTML = '<div class="loading"><div class="spinner"></div><p>' + t('⏳ Загрузка...') + '</p></div>';
+}
+
+function showError(msg) {
+  render('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + escapeHtml(msg || t('Ошибка отображения')) + '</div></div>');
+}
   } catch (e) {
     console.error('Render failed:', e);
     const content = document.getElementById('content');
@@ -247,18 +310,18 @@ async function renderDashboard() {
     if (pred) {
       const confPct = Math.round(pred.confidence * 100);
       const confColor = confPct >= 70 ? 'high' : confPct >= 40 ? 'med' : 'low';
-      html += '<div class="card"><div class="card-title">Уверенность прогноза</div><div class="conf-bar"><div class="conf-bar-fill ' + confColor + '" style="width:' + confPct + '%"></div></div><div class="row"><span class="label">' + confPct + '%</span><span class="value">' + (confPct >= 70 ? 'высокая' : confPct >= 40 ? 'средняя' : 'низкая') + '</span></div></div>';
+      html += '<div class="card"><div class="card-title">' + t('Уверенность прогноза') + '</div><div class="conf-bar"><div class="conf-bar-fill ' + confColor + '" style="width:' + confPct + '%"></div></div><div class="row"><span class="label">' + confPct + '%</span><span class="value">' + t(confPct >= 70 ? 'высокая' : confPct >= 40 ? 'средняя' : 'низкая') + '</span></div></div>';
     }
 
     if (data.consensus && !data.consensus.low_confidence) {
       const cp = data.consensus.bullish_pct;
       const sig = data.consensus.signal;
-      const sigLabel = sig === 'strong_bullish' ? 'Сильно бычий' : sig === 'bullish' ? 'Бычий' : sig === 'strong_bearish' ? 'Сильно медвежий' : sig === 'bearish' ? 'Медвежий' : 'Нейтральный';
-      html += '<div class="card"><div class="card-title">Консенсус индикаторов</div><div class="conf-bar"><div class="conf-bar-fill" style="width:' + cp + '%;background:linear-gradient(90deg,#00c853,' + (cp >= 50 ? '#ffc107' : '#ff1744') + ')"></div></div><div class="row"><span class="label">' + cp + '% за рост</span><span class="value">' + sigLabel + '</span></div></div>';
+      const sigLabel = sig === 'strong_bullish' ? t('Сильно бычий') : sig === 'bullish' ? t('Бычий') : sig === 'strong_bearish' ? t('Сильно медвежий') : sig === 'bearish' ? t('Медвежий') : t('Нейтральный');
+      html += '<div class="card"><div class="card-title">' + t('Консенсус') + '</div><div class="conf-bar"><div class="conf-bar-fill" style="width:' + cp + '%;background:linear-gradient(90deg,#00c853,' + (cp >= 50 ? '#ffc107' : '#ff1744') + ')"></div></div><div class="row"><span class="label">' + cp + '% ' + t('за рост') + '</span><span class="value">' + sigLabel + '</span></div></div>';
     }
 
     if (ind) {
-      html += '<div class="card"><div class="card-title">Технические индикаторы</div>';
+      html += '<div class="card"><div class="card-title">' + t('Технические индикаторы') + '</div>';
       if (ind.rsi != null) {
         const rsiFillColor = ind.rsi > 70 ? '#ff1744' : ind.rsi < 30 ? '#00c853' : '#ffc107';
         html += '<div class="row"><span class="label">RSI(14)</span><span class="value"><div class="conf-bar" style="width:80px;display:inline-block;vertical-align:middle;"><div class="conf-bar-fill" style="width:' + ind.rsi.toFixed(0) + '%;background:' + rsiFillColor + '"></div></div> ' + ind.rsi.toFixed(1) + '</span></div>';
@@ -267,7 +330,7 @@ async function renderDashboard() {
         html += '<div class="row"><span class="label">BB(20,2)</span><span class="value">' + fmtPrice(ind.bb_lower) + ' / ' + fmtPrice(ind.bb_middle) + ' / ' + fmtPrice(ind.bb_upper) + '</span></div>';
       }
       if (ind.macd != null) {
-        const macdDir = ind.macd > ind.macd_signal ? ' бычье' : ' медвежье';
+        const macdDir = ind.macd > ind.macd_signal ? ' ' + t('бычье') : ' ' + t('медвежье');
         html += '<div class="row"><span class="label">MACD</span><span class="value">' + ind.macd.toFixed(1) + macdDir + '</span></div>';
       }
       const maParts = [];
@@ -284,13 +347,13 @@ async function renderDashboard() {
       const v = data.volatility;
       const pct = Math.round(v.current * 100);
       const volColor = pct < 25 ? 'var(--green)' : pct < 50 ? 'var(--yellow)' : pct < 75 ? '#ff9800' : 'var(--red)';
-      const volLabel = v.classification === 'low' ? 'Низкая' : v.classification === 'medium' ? 'Средняя' : v.classification === 'high' ? 'Высокая' : 'Экстремальная';
-      html += '<div class="card"><div class="card-title">📊 Волатильность</div>';
+      const volLabel = v.classification === 'low' ? t('🟢 Низкая') : v.classification === 'medium' ? t('🟡 Средняя') : v.classification === 'high' ? t('🟠 Высокая') : t('🔴 Экстремальная');
+      html += '<div class="card"><div class="card-title">📊 ' + t('Волатильность') + '</div>';
       html += '<div class="vol-gauge"><div class="vol-gauge-fill" style="width:' + pct + '%;background:' + volColor + '"></div></div>';
-      html += '<div class="row"><span class="label">Уровень</span><span class="value">' + volLabel + '</span></div>';
-      html += '<div class="row"><span class="label">BB ширина</span><span class="value">' + v.bb_width_pct.toFixed(2) + '%</span></div>';
-      html += '<div class="row"><span class="label">ATR</span><span class="value">' + v.atr_pct.toFixed(2) + '%</span></div>';
-      html += '<div class="row"><span class="label">Перцентиль (30д)</span><span class="value">' + v.percentile.toFixed(0) + '%</span></div>';
+      html += '<div class="row"><span class="label">' + t('Уровень') + '</span><span class="value">' + volLabel + '</span></div>';
+      html += '<div class="row"><span class="label">' + t('BB ширина') + '</span><span class="value">' + v.bb_width_pct.toFixed(2) + '%</span></div>';
+      html += '<div class="row"><span class="label">' + t('ATR') + '</span><span class="value">' + v.atr_pct.toFixed(2) + '%</span></div>';
+      html += '<div class="row"><span class="label">' + t('Перцентиль (30д)') + '</span><span class="value">' + v.percentile.toFixed(0) + '%</span></div>';
       if (v.history && v.history.length) {
         const max = Math.max(...v.history, 0.01);
         html += '<div class="sparkline">';
@@ -304,17 +367,17 @@ async function renderDashboard() {
       html += '</div>';
     }
 
-    html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;">♻️ Обновление каждые 30с</div>';
+    html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;">' + t('♻️ Обновление каждые 30с') + '</div>';
 
     apiCall('/miniapp/metcalfe').then(function(mc) {
       if (!mc || document.getElementById('metcalfe-card')) return;
       var sigEmoji = mc.signal === 'undervalued' ? '🟢' : mc.signal === 'overvalued' ? '🔴' : '🟡';
-      var sigText = mc.signal === 'undervalued' ? 'Недооценён' : mc.signal === 'overvalued' ? 'Переоценён' : 'Справедливо';
-      var mcHtml = '<div class="card" id="metcalfe-card"><div class="card-title">📐 Закон Меткалфа</div>';
+      var sigText = mc.signal === 'undervalued' ? t('Недооценён') : mc.signal === 'overvalued' ? t('Переоценён') : t('Справедливо');
+      var mcHtml = '<div class="card" id="metcalfe-card"><div class="card-title">' + t('📐 Закон Меткалфа') + '</div>';
       mcHtml += '<div style="font-size:16px;font-weight:700;">' + sigEmoji + ' ' + sigText + ' (' + (mc.deviation_pct > 0 ? '+' : '') + mc.deviation_pct + '%)</div>';
-      mcHtml += '<div class="row"><span class="label">Справедливая цена</span><span class="value">$' + fmtPrice(mc.metcalfe_price) + '</span></div>';
-      mcHtml += '<div class="row"><span class="label">Коридор</span><span class="value">$' + fmtPrice(mc.lower_band) + ' – $' + fmtPrice(mc.upper_band) + '</span></div>';
-      mcHtml += '<div class="row"><span class="label">Активные адреса</span><span class="value">' + Number(mc.active_addresses).toLocaleString() + '</span></div>';
+      mcHtml += '<div class="row"><span class="label">' + t('Справедливая цена') + '</span><span class="value">$' + fmtPrice(mc.metcalfe_price) + '</span></div>';
+      mcHtml += '<div class="row"><span class="label">' + t('Коридор') + '</span><span class="value">$' + fmtPrice(mc.lower_band) + ' – $' + fmtPrice(mc.upper_band) + '</span></div>';
+      mcHtml += '<div class="row"><span class="label">' + t('Активные адреса') + '</span><span class="value">' + Number(mc.active_addresses).toLocaleString() + '</span></div>';
       mcHtml += '</div>';
       var footer = document.querySelector('#sub-content .card:last-child');
       if (footer) footer.insertAdjacentHTML('beforebegin', mcHtml);
@@ -327,8 +390,8 @@ async function renderDashboard() {
       if (!summary || !Object.values(summary).some(function(s) { return s; })) return;
       var subContent = document.getElementById('sub-content');
       if (!subContent) return;
-      var labels = { trend: 'Тренд', momentum: 'Моментум', volatility: 'Волатильность', onchain: 'On-chain', sentiment: 'Сентимент' };
-      var summaryHtml = '<div class="card" id="ai-summary-card"><div class="card-title">🧠 AI Сводка</div>';
+      var labels = { trend: t('Тренд'), momentum: t('Моментум'), volatility: t('Волатильность'), onchain: t('On-chain'), sentiment: t('Сентимент') };
+      var summaryHtml = '<div class="card" id="ai-summary-card"><div class="card-title">' + t('🧠 AI Сводка') + '</div>';
       for (var key in summary) {
         if (summary[key]) {
           summaryHtml += '<div style="margin-bottom:10px;"><div style="font-size:11px;font-weight:600;color:var(--btn);margin-bottom:2px;">' + (labels[key] || key) + '</div><div style="font-size:12px;color:var(--text);line-height:1.55;">' + escapeHtml(summary[key]) + '</div></div>';
@@ -383,49 +446,49 @@ async function renderPredict() {
       const priceMin = pred.price_min || 0;
       const priceMax = pred.price_max || 0;
 
-      html += '<div class="card"><div class="card-title">Сегодня</div><div class="signal ' + signalClass + '">' + signalEmoji + ' ' + signal + '</div><div style="margin-top:8px;font-weight:600;">$' + fmtPrice(priceMin) + ' – $' + fmtPrice(priceMax) + '</div><div class="conf-bar"><div class="conf-bar-fill ' + confColor + '" style="width:' + confPct + '%"></div></div><div class="row"><span class="label">Уверенность</span><span class="value">' + confPct + '%</span></div>';
+      html += '<div class="card"><div class="card-title">' + t('Сегодня') + '</div><div class="signal ' + signalClass + '">' + signalEmoji + ' ' + signal + '</div><div style="margin-top:8px;font-weight:600;">$' + fmtPrice(priceMin) + ' – $' + fmtPrice(priceMax) + '</div><div class="conf-bar"><div class="conf-bar-fill ' + confColor + '" style="width:' + confPct + '%"></div></div><div class="row"><span class="label">' + t('Уверенность') + '</span><span class="value">' + confPct + '%</span></div>';
       if (vol) {
-        const vLabel = vol.classification === 'low' ? '🟢 Низкая' : vol.classification === 'medium' ? '🟡 Средняя' : vol.classification === 'high' ? '🟠 Высокая' : '🔴 Экстремальная';
+        const vLabel = vol.classification === 'low' ? t('🟢 Низкая') : vol.classification === 'medium' ? t('🟡 Средняя') : vol.classification === 'high' ? t('🟠 Высокая') : t('🔴 Экстремальная');
         const vCls = vol.classification === 'low' ? 'green' : vol.classification === 'medium' ? 'yellow' : vol.classification === 'high' ? 'orange' : 'red';
-        html += '<div class="row"><span class="label">📊 Волатильность</span><span class="value"><span class="vol-indicator ' + vCls + '">' + vLabel + '</span></span></div>';
+        html += '<div class="row"><span class="label">📊 ' + t('Волатильность') + '</span><span class="value"><span class="vol-indicator ' + vCls + '">' + vLabel + '</span></span></div>';
       }
       html += '</div>';
 
       const zones = p4h.liquidity_zones || [];
       if (zones.length) {
-        html += '<div class="card"><div class="card-title">Риски</div>';
+        html += '<div class="card"><div class="card-title">' + t('Риски') + '</div>';
         for (const z of zones) {
           const text = z.type === 'long'
-            ? 'откат до $' + fmtPrice(z.price) + ' перед ростом'
-            : 'пробой $' + fmtPrice(z.price) + ' → цепная реакция';
+            ? t('откат до ${price} перед ростом').replace('${price}', '$' + fmtPrice(z.price))
+            : t('пробой ${price} → цепная реакция').replace('${price}', '$' + fmtPrice(z.price));
           html += '<div class="row"><span class="label">' + text + '</span></div>';
         }
         html += '</div>';
       }
 
       if (p1w && p1w.cycle_phase) {
-        const phaseLabel = { ACCUMULATION: 'накопление', MARKUP: 'рост', DISTRIBUTION: 'распределение', MARKDOWN: 'снижение' };
-        html += '<div class="card"><div class="card-title">Неделя</div>';
-        html += '<div class="row"><span class="label">Фаза</span><span class="value">' + (phaseLabel[p1w.cycle_phase] || p1w.cycle_phase) + ' (score ' + (p1w.cycle_score||0).toFixed(2) + ')</span></div>';
-        if (p1w.mvrv_z != null) html += '<div class="row"><span class="label">MVRV Z-Score</span><span class="value">' + p1w.mvrv_z.toFixed(2) + '</span></div>';
-        if (p1w.sopr != null) html += '<div class="row"><span class="label">SOPR</span><span class="value">' + p1w.sopr.toFixed(2) + '</span></div>';
+        const phaseLabel = { ACCUMULATION: t('накопление'), MARKUP: t('рост'), DISTRIBUTION: t('распределение'), MARKDOWN: t('снижение') };
+        html += '<div class="card"><div class="card-title">' + t('Неделя') + '</div>';
+        html += '<div class="row"><span class="label">' + t('Фаза') + '</span><span class="value">' + (phaseLabel[p1w.cycle_phase] || p1w.cycle_phase) + ' (score ' + (p1w.cycle_score||0).toFixed(2) + ')</span></div>';
+        if (p1w.mvrv_z != null) html += '<div class="row"><span class="label">' + t('MVRV Z-Score') + '</span><span class="value">' + p1w.mvrv_z.toFixed(2) + '</span></div>';
+        if (p1w.sopr != null) html += '<div class="row"><span class="label">' + t('SOPR') + '</span><span class="value">' + p1w.sopr.toFixed(2) + '</span></div>';
         html += '</div>';
       }
 
       if (plong.price_vs_200w_ma_text || plong.halving_days != null) {
-        html += '<div class="card"><div class="card-title">Долгосрочно</div>';
+        html += '<div class="card"><div class="card-title">' + t('Долгосрочно') + '</div>';
         if (plong.price_vs_200w_ma_text) {
           html += '<div class="row"><span class="label">' + plong.price_vs_200w_ma_text + '</span></div>';
         }
         if (plong.halving_days != null) {
-          html += '<div class="row"><span class="label">Халвинг через</span><span class="value">' + plong.halving_days + ' дн</span></div>';
+          html += '<div class="row"><span class="label">' + t('Халвинг через') + '</span><span class="value">' + plong.halving_days + ' ' + t('дн') + '</span></div>';
         }
         html += '</div>';
       }
 
-      html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;">♻️ Прогноз — 1ч · On-chain — 6ч</div>';
+      html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;">' + t('♻️ Прогноз — 1ч · On-chain — 6ч') + '</div>';
     } else {
-      html = '<div class="card"><div class="card-title">Прогноз</div>⏳ Собираем историю для прогноза (~48ч)</div>';
+      html = '<div class="card"><div class="card-title">' + t('Прогноз') + '</div>' + t('⏳ Собираем историю для прогноза (~48ч)') + '</div>';
     }
 
     renderSub(html);
@@ -446,23 +509,23 @@ async function renderNews() {
     const mood = data.sentiment?.mood || 'neutral';
 
     const moodEmoji = mood === 'bullish' ? '🟢' : mood === 'bearish' ? '🔴' : '🟡';
-    const moodText = mood === 'bullish' ? 'Бычье' : mood === 'bearish' ? 'Медвежье' : 'Нейтральное';
+    const moodText = mood === 'bullish' ? t('Бычье') : mood === 'bearish' ? t('Медвежье') : t('Нейтральное');
 
     const worry = articles.length ? bearCount / articles.length : 0;
-    let worryLabel = '🟢 Низкий';
-    if (worry >= 0.6) worryLabel = '🔴 Высокий';
-    else if (worry >= 0.3) worryLabel = '🟡 Средний';
+    let worryLabel = t('🟢 Низкий');
+    if (worry >= 0.6) worryLabel = t('🔴 Высокий');
+    else if (worry >= 0.3) worryLabel = t('🟡 Средний');
 
-    let html = '<div class="card"><div class="card-title">Пульс рынка</div><div style="font-size:18px;font-weight:700;">' + moodEmoji + ' ' + moodText + '</div><div class="mood-row"><div class="mood-item bullish"><div class="count">' + bullCount + '</div><div class="mood-label">Бычьих</div></div><div class="mood-item bearish"><div class="count">' + bearCount + '</div><div class="mood-label">Медвежьих</div></div><div class="mood-item neutral"><div class="count">' + neutralCount + '</div><div class="mood-label">Нейтр.</div></div></div><div style="margin-top:8px;font-size:13px;">Тревога: ' + worryLabel + '</div></div>';
+    let html = '<div class="card"><div class="card-title">' + t('Пульс рынка') + '</div><div style="font-size:18px;font-weight:700;">' + moodEmoji + ' ' + moodText + '</div><div class="mood-row"><div class="mood-item bullish"><div class="count">' + bullCount + '</div><div class="mood-label">' + t('Бычьих') + '</div></div><div class="mood-item bearish"><div class="count">' + bearCount + '</div><div class="mood-label">' + t('Медвежьих') + '</div></div><div class="mood-item neutral"><div class="count">' + neutralCount + '</div><div class="mood-label">' + t('Нейтр.') + '</div></div></div><div style="margin-top:8px;font-size:13px;">' + t('Тревога') + ': ' + worryLabel + '</div></div>';
 
     const sentEmoji = { bullish: '🟢', bearish: '🔴', neutral: '🟡' };
     for (const a of articles) {
       const emoji = sentEmoji[a.sentiment] || '🟡';
       const src = a.source ? ' — ' + escapeHtml(a.source) : '';
-      html += '<div class="news-item"><div class="news-title">' + emoji + ' ' + escapeHtml(a.title) + '</div><div class="news-meta"><a class="news-link" href="' + escapeHtml(a.url) + '" target="_blank">Читать' + src + '</a></div></div>';
+      html += '<div class="news-item"><div class="news-title">' + emoji + ' ' + escapeHtml(a.title) + '</div><div class="news-meta"><a class="news-link" href="' + escapeHtml(a.url) + '" target="_blank">' + t('Читать') + src + '</a></div></div>';
     }
 
-    html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;">♻️ Новости — 5 мин</div>';
+    html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;">' + t('♻️ Новости — 5 мин') + '</div>';
     renderSub(html);
   } catch (e) {
     renderSub('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + escapeHtml(e.message) + '</div></div>');
@@ -493,11 +556,11 @@ async function renderLearnList() {
         '</div></div>';
     }
 
-    let html = '<div class="card" style="padding:0;"><div class="card-title" style="padding:14px 14px 0;">📖 Азбука крипты</div><p style="margin-bottom:0;padding:0 14px 6px;color:var(--hint);">60 уроков: от новичка до профи с формулами и графиками</p></div>';
-    html += sectionHtml('📖 Для начинающих', '20 уроков', basic, false);
-    html += sectionHtml('🧠 Для опытных', advanced.length + ' уроков с формулами', advanced, false);
+    let html = '<div class="card" style="padding:0;"><div class="card-title" style="padding:14px 14px 0;">' + t('📖 Азбука крипты') + '</div><p style="margin-bottom:0;padding:0 14px 6px;color:var(--hint);">' + t('60 уроков: от новичка до профи с формулами и графиками') + '</p></div>';
+    html += sectionHtml(t('📖 Для начинающих'), t('20 уроков'), basic, false);
+    html += sectionHtml('🧠 ' + t('Для опытных'), advanced.length + ' lessons', advanced, false);
     if (pro.length) {
-      html += sectionHtml('🚀 Для профи', pro.length + ' уроков — аналитика + ML', pro, false);
+      html += sectionHtml('🚀 ' + t('Для профи'), pro.length + t(' — аналитика + ML'), pro, false);
     }
     renderSub(html);
   } catch (e) {
@@ -517,11 +580,11 @@ async function renderLesson(id) {
       lessons.length ? Promise.resolve(lessons) : apiCall('/miniapp/lessons'),
     ]);
     if (!lessons.length) lessons = allLessons;
-    let html = '<div class="card"><div class="card-title">Урок ' + lesson.id + '</div><div class="lesson-text">' + escapeHtml(lesson.text || '') + '</div><div class="lesson-nav">';
+    let html = '<div class="card"><div class="card-title">' + t('Урок') + ' ' + lesson.id + '</div><div class="lesson-text">' + escapeHtml(lesson.text || '') + '</div><div class="lesson-nav">';
 
-    if (id > 1) html += '<button onclick="window.location.hash=\'#miniapp/lessons/' + (id-1) + '\'">◀️ Назад</button>';
+    if (id > 1) html += '<button onclick="window.location.hash=\'#miniapp/lessons/' + (id-1) + '\'">' + t('◀️ Назад') + '</button>';
     else html += '<div></div>';
-    if (id < lessons.length) html += '<button onclick="window.location.hash=\'#miniapp/lessons/' + (id+1) + '\'">▶️ Вперёд</button>';
+    if (id < lessons.length) html += '<button onclick="window.location.hash=\'#miniapp/lessons/' + (id+1) + '\'">' + t('▶️ Вперёд') + '</button>';
     else html += '<div></div>';
     html += '</div></div>';
 
@@ -536,20 +599,20 @@ async function renderChat() {
   stopAllPolls();
   renderTabs('');
 
-  let html = '<div class="chat-overlay"><div class="chat-overlay-header"><span>🧠 AI Аналитика</span><button class="chat-close-btn" id="chat-close-btn" onclick="window.location.hash=\'#indicators/chart\'">✕</button></div><div class="chat-container"><div class="chat-messages" id="chat-messages">';
+  let html = '<div class="chat-overlay"><div class="chat-overlay-header"><span>' + t('🧠 AI Аналитика') + '</span><button class="chat-close-btn" id="chat-close-btn" onclick="window.location.hash=\'#indicators/chart\'">✕</button></div><div class="chat-container"><div class="chat-messages" id="chat-messages">';
 
   if (chatMessages.length === 0) {
     const quickQs = [
-      ['📉','Почему BTC падает?'],
-      ['🔮','Прогноз на сегодня'],
-      ['📊','Что такое MVRV?'],
-      ['💰','Стоит ли покупать BTC?'],
-      ['🛡️','Уровни поддержки и сопротивления'],
-      ['📈','Что говорят индикаторы?'],
-      ['⛏️','Как халвинг влияет на цену?'],
-      ['🥇','Сравни BTC с золотом'],
+      ['📉', t('Почему BTC падает?')],
+      ['🔮', t('Прогноз на сегодня')],
+      ['📊', t('Что такое MVRV?')],
+      ['💰', t('Стоит ли покупать BTC?')],
+      ['🛡️', t('Уровни поддержки и сопротивления')],
+      ['📈', t('Что говорят индикаторы?')],
+      ['⛏️', t('Как халвинг влияет на цену?')],
+      ['🥇', t('Сравни BTC с золотом')],
     ];
-    html += '<div class="chat-welcome"><h3>🧠 AI Аналитика</h3><p>Спросите Market-Brain о Bitcoin. Получайте анализ с учётом текущих рыночных данных.</p><div class="chat-quick-grid">' +
+    html += '<div class="chat-welcome"><h3>' + t('🧠 AI Аналитика') + '</h3><p>' + t('Спросите Market-Brain о Bitcoin. Получайте анализ с учётом текущих рыночных данных.') + '</p><div class="chat-quick-grid">' +
       quickQs.map(([icon, q]) => '<button class="chat-quick-btn" onclick="sendMessage(\'' + q.replace(/'/g,"\\'") + '\')"><span class="chat-quick-icon">' + icon + '</span><span>' + q + '</span></button>').join('') +
     '</div></div>';
   } else {
@@ -561,7 +624,7 @@ async function renderChat() {
 
   html += '</div>';
   html += '<div class="chat-input-bar">';
-  html += '<input type="text" class="chat-input" id="chat-input" placeholder="Задайте вопрос о Bitcoin..."' + (chatSending ? ' disabled' : '') + '>';
+  html += '<input type="text" class="chat-input" id="chat-input" placeholder="' + t('Задайте вопрос о Bitcoin...') + '"' + (chatSending ? ' disabled' : '') + '>';
   html += '<button class="chat-send-btn" id="chat-send-btn"' + (chatSending ? ' disabled' : '') + '>➤</button>';
   html += '</div></div></div>';
 
@@ -592,7 +655,7 @@ async function renderChat() {
 async function sendMessage(text) {
   if (chatMessages.length >= 100) chatMessages.splice(0, 20);
   chatMessages.push({ role: 'user', text });
-  chatMessages.push({ role: 'thinking', text: '⏳ думаю...' });
+  chatMessages.push({ role: 'thinking', text: t('⏳ думаю...') });
   chatSending = true;
   renderChat();
 
@@ -606,7 +669,7 @@ async function sendMessage(text) {
     const taskId = data.task_id;
     if (!taskId) {
       chatMessages.pop();
-      chatMessages.push({ role: 'error', text: 'Не удалось создать задачу' });
+      chatMessages.push({ role: 'error', text: t('Не удалось создать задачу') });
       chatSending = false;
       renderChat();
       return;
@@ -619,12 +682,12 @@ async function sendMessage(text) {
       switch (status.status) {
         case 'done':
           chatMessages.pop();
-          chatMessages.push({ role: 'bot', text: status.result || 'Пустой ответ' });
+          chatMessages.push({ role: 'bot', text: status.result || t('Пустой ответ') });
           done = true;
           break;
         case 'error':
           chatMessages.pop();
-          chatMessages.push({ role: 'error', text: '❌ ' + (status.result || 'AI недоступен') });
+          chatMessages.push({ role: 'error', text: '❌ ' + (status.result || t('❌ AI недоступен')) });
           done = true;
           break;
         case 'pending':
@@ -632,7 +695,7 @@ async function sendMessage(text) {
           break;
         default:
           chatMessages.pop();
-          chatMessages.push({ role: 'error', text: '❌ Неизвестный статус: ' + status.status });
+          chatMessages.push({ role: 'error', text: t('❌ Неизвестный статус:') + ' ' + status.status });
           done = true;
       }
     }
@@ -655,30 +718,28 @@ async function renderAlerts() {
   tgBackButton('hide');
   renderSub('<div class="card"><div class="spinner"></div></div>');
   try {
-    const subs = await apiCall('/miniapp/subscriptions');
-    const activeTypes = new Set();
-    for (const s of subs) for (const at of s.alert_types) activeTypes.add(at);
+    const data = await apiCall('/miniapp/alerts');
+    if (data.error) { renderSub('<div class="card" style="text-align:center;padding:30px;">❌ ' + escapeHtml(data.error) + '</div>'); return; }
+    const subs = data.subscriptions || [];
+    let html = '<div class="card"><div class="card-title">' + t('🔔 Мои подписки') + '</div>';
 
-    let html = '';
-
-    // ─── Active subscriptions ───
-    html += '<div class="card"><div class="card-title">🔔 Мои подписки</div>';
     if (!subs.length) {
-      html += '<div class="empty-state">Нет активных подписок</div>';
+      html += '<p style="color:var(--hint);">' + t('Нет активных подписок') + '</p>';
     } else {
       for (const sub of subs) {
         for (const at of sub.alert_types) {
-          const info = ALERT_TYPES.find(a => a.id === at) || { icon: '🔔', name: at, desc: '' };
-          html += `
-            <div class="alert-card">
-              <span class="alert-card-icon">${info.icon}</span>
-              <div class="alert-card-info">
-                <div class="alert-card-name">${info.name}</div>
-                <div class="alert-card-desc">${info.desc}</div>
-              </div>
-              <button class="btn-unsub" data-sub-id="${sub.id}" data-type="${at}" title="Отписаться">✕</button>
-            </div>`;
+          const label = at === 'rsi' ? 'RSI' : at === 'ma_cross' ? 'MA Cross' : at === 'volume_spike' ? 'Volume Spike' : at;
+          html += '<div class="row"><span class="label">' + escapeHtml(label) + '</span><button class="upgrade-btn" style="padding:4px 12px;" onclick="unsubscribe(' + sub.id + ',\'' + at + '\')">' + t('Отписаться') + '</button></div>';
         }
+      }
+    }
+
+    html += '<div style="margin-top:12px;"><button class="upgrade-btn" onclick="window.location.hash=\'#indicators/subscriptions\'">' + t('➕ Добавить подписку') + '</button></div></div>';
+    renderSub(html);
+  } catch (e) {
+    renderSub('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + escapeHtml(e.message) + '</div></div>');
+  }
+}
       }
     }
     html += '</div>';
@@ -807,9 +868,9 @@ async function renderChart(overrideTf, overrideInd) {
         <button class="chart-btn" data-tf="1w">1W</button>
       </div>
       <div class="chart-types">
-        <button class="chart-btn active" data-ct="candlestick">Свечи</button>
-        <button class="chart-btn" data-ct="line">Линия</button>
-        <button class="chart-btn" data-ct="area">Область</button>
+        <button class="chart-btn active" data-ct="candlestick">${t('Свечи')}</button>
+        <button class="chart-btn" data-ct="line">${t('Линия')}</button>
+        <button class="chart-btn" data-ct="area">${t('Область')}</button>
         <button class="chart-btn" data-ct="metcalfe">📐</button>
       </div>
     </div>
@@ -876,7 +937,7 @@ async function loadChartData() {
       if (candles && candles.length) chartDataCache[cacheKey] = { data: candles, _ts: Date.now() };
     }
     if (!candles || !candles.length) {
-      container.innerHTML = '<div class="card" style="text-align:center;padding:20px;color:var(--hint);">Нет данных</div>';
+      container.innerHTML = '<div class="card" style="text-align:center;padding:20px;color:var(--hint);">' + t('Нет данных') + '</div>';
       return;
     }
     initChart(candles);
@@ -1185,10 +1246,10 @@ function renderIndicatorsPage(sub, chartTf, chartInd) {
   tgBackButton('hide');
   render('<div id="sub-content"></div>');
   renderTabs(`
-    <button class="sub-tab${sub === 'chart' ? ' active' : ''}" data-icon="📊" data-label="График" onclick="navigate('indicators','chart')"></button>
-    <button class="sub-tab${sub === 'price' ? ' active' : ''}" data-icon="💰" data-label="Цена" onclick="navigate('indicators','price')"></button>
-    <button class="sub-tab${sub === 'predict' ? ' active' : ''}" data-icon="🔮" data-label="Прогноз" onclick="navigate('indicators','predict')"></button>
-    <button class="sub-tab${sub === 'alerts' ? ' active' : ''}" data-icon="🔔" data-label="Подписки" onclick="navigate('indicators','alerts')"></button>
+    <button class="sub-tab${sub === 'chart' ? ' active' : ''}" data-icon="📊" data-label="${t('График')}" onclick="navigate('indicators','chart')"></button>
+    <button class="sub-tab${sub === 'price' ? ' active' : ''}" data-icon="💰" data-label="${t('Цена')}" onclick="navigate('indicators','price')"></button>
+    <button class="sub-tab${sub === 'predict' ? ' active' : ''}" data-icon="🔮" data-label="${t('Прогноз')}" onclick="navigate('indicators','predict')"></button>
+    <button class="sub-tab${sub === 'alerts' ? ' active' : ''}" data-icon="🔔" data-label="${t('Подписки')}" onclick="navigate('indicators','alerts')"></button>
   `);
   if (sub === 'chart') renderChart(chartTf, chartInd);
   else if (sub === 'predict') startPoll('indicators_predict', renderPredict, 60000);
@@ -1201,9 +1262,9 @@ function renderMiniAppPage(sub, param) {
   tgBackButton('hide');
   render('<div id="sub-content"></div>');
   renderTabs(`
-    <button class="sub-tab${sub === 'lessons' ? ' active' : ''}" data-icon="📖" data-label="Обучение" onclick="navigate('miniapp','lessons')"></button>
-    <button class="sub-tab${sub === 'games' ? ' active' : ''}" data-icon="🎮" data-label="Игры" onclick="navigate('miniapp','games')"></button>
-    <button class="sub-tab${sub === 'arena' ? ' active' : ''}" data-icon="🏆" data-label="Арена" onclick="navigate('miniapp','arena')"></button>
+    <button class="sub-tab${sub === 'lessons' ? ' active' : ''}" data-icon="📖" data-label="${t('Обучение')}" onclick="navigate('miniapp','lessons')"></button>
+    <button class="sub-tab${sub === 'games' ? ' active' : ''}" data-icon="🎮" data-label="${t('Игры')}" onclick="navigate('miniapp','games')"></button>
+    <button class="sub-tab${sub === 'arena' ? ' active' : ''}" data-icon="🏆" data-label="${t('Арена')}" onclick="navigate('miniapp','arena')"></button>
   `);
   if (sub === 'games') {
     if (param === 'trading') renderTradingGame();
@@ -1222,7 +1283,7 @@ function renderNewsPage(sub) {
   tgBackButton('hide');
   render('<div id="sub-content"></div>');
   renderTabs(`
-    <button class="sub-tab${sub === 'general' ? ' active' : ''}" data-icon="📰" data-label="Общие" onclick="navigate('news','general')"></button>
+    <button class="sub-tab${sub === 'general' ? ' active' : ''}" data-icon="📰" data-label="${t('Общие')}" onclick="navigate('news','general')"></button>
     <button class="sub-tab${sub === 'timothy' ? ' active' : ''}" data-icon="🐦" data-label="Timothy" onclick="navigate('news','timothy')"></button>
   `);
   if (sub === 'timothy') {
@@ -1233,11 +1294,11 @@ function renderNewsPage(sub) {
 }
 
 async function renderTimothyNews() {
-  renderSub('<div class="card"><div class="spinner"></div><p style="color:var(--hint);">Загрузка анализа Timothy Peterson...</p></div>');
+  renderSub('<div class="card"><div class="spinner"></div><p style="color:var(--hint);">' + t('Загрузка анализа Timothy Peterson...') + '</p></div>');
   try {
-    const data = await apiCall('/miniapp/news/timothy', {}, 120000);
-    const text = data.text || 'Нет данных.';
-    renderSub('<div class="card"><div class="card-title">🐦 Timothy Peterson</div><div style="white-space:pre-wrap;line-height:1.7;">' + escapeHtml(text) + '</div><div style="margin-top:12px;font-size:11px;color:var(--hint);">♻️ Кеш: 1 час</div></div>');
+    const data = await apiCall('/miniapp/news/timothy', { headers: { 'X-Language': _lang } }, 120000);
+    const text = data.text || t('Нет данных.');
+    renderSub('<div class="card"><div class="card-title">🐦 Timothy Peterson</div><div style="white-space:pre-wrap;line-height:1.7;">' + escapeHtml(text) + '</div><div style="margin-top:12px;font-size:11px;color:var(--hint);">' + t('♻️ Кеш: 1 час') + '</div></div>');
   } catch (e) {
     renderSub('<div class="card" style="text-align:center;padding:30px;"><div style="font-size:40px;">❌</div><div style="margin-top:12px;color:var(--text);">' + escapeHtml(e.message) + '</div></div>');
   }
@@ -1245,10 +1306,10 @@ async function renderTimothyNews() {
 
 // ─── Games Page ─────────────────────────────────────────────────────
 const GAMES = [
-  { slug: 'trading', icon: '🎯', title: 'Торговый симулятор', desc: 'Виртуальная торговля BTC. Стартовый баланс $10,000. Покупайте и продавайте по реальной цене.', btn: '▶ Играть' },
-  { slug: 'roulette', icon: '🎰', title: 'Биткоин-рулетка', desc: 'Ставь ⭐ и крути! Множители до x5. Рискни и умножь.', btn: '🎰 Крутить' },
-  { slug: 'guess', icon: '🔮', title: 'Угадай цену BTC', desc: 'Предскажи цену закрытия BTC на сегодня. Совпадёшь — получишь ⭐!', btn: '🔮 Играть' },
-  { slug: 'mining', icon: '⛏️', title: 'Майнинг-ферма', desc: 'Тапай каждый час, добывай сатоши, копи на ⭐. Streak до x2!', btn: '⛏️ Копать' },
+  { slug: 'trading', icon: '🎯', titleKey: 'Торговый симулятор', descKey: 'Виртуальная торговля BTC. Стартовый баланс $10,000. Покупайте и продавайте по реальной цене.', btnKey: '▶ Играть' },
+  { slug: 'roulette', icon: '🎰', titleKey: 'Биткоин-рулетка', descKey: 'Ставь ⭐ и крути! Множители до x5. Рискни и умножь.', btnKey: '🎰 Крутить' },
+  { slug: 'guess', icon: '🔮', titleKey: 'Угадай цену BTC', descKey: 'Предскажи цену закрытия BTC на сегодня. Совпадёшь — получишь ⭐!', btnKey: '🔮 Играть' },
+  { slug: 'mining', icon: '⛏️', titleKey: 'Майнинг-ферма', descKey: 'Кликай каждые 30 минут, копи сатоши. Streak до ×2, рефералы до +50%.', btnKey: '⛏️ Копать' },
 ];
 
 function renderGameLobby() {
@@ -1259,12 +1320,12 @@ function renderGameLobby() {
     html += '<div class="game-lobby-card" onclick="window.location.hash=\'#miniapp/games/' + g.slug + '\'">';
     html += '<div class="game-lobby-icon">' + g.icon + '</div>';
     html += '<div class="game-lobby-body">';
-    html += '<div class="game-lobby-title">' + g.title + '</div>';
-    html += '<div class="game-lobby-desc">' + g.desc + '</div>';
-    html += '<div class="game-lobby-btn">' + g.btn + '</div>';
+    html += '<div class="game-lobby-title">' + t(g.titleKey) + '</div>';
+    html += '<div class="game-lobby-desc">' + t(g.descKey) + '</div>';
+    html += '<div class="game-lobby-btn">' + t(g.btnKey) + '</div>';
     html += '</div></div>';
   }
-  html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;">Больше игр скоро появятся 🚀</div>';
+  html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;">' + t('Больше игр скоро появятся 🚀') + '</div>';
   renderSub(html);
 }
 
@@ -1687,15 +1748,15 @@ async function renderUpgradePage() {
 
     var html = '<div class="upgrade-hero">';
     html += '<div class="upgrade-tier-badge ' + tier + '">' + tier.toUpperCase() + '</div>';
-    html += '<div class="upgrade-hero-title">Ваша подписка</div>';
-    if (data.trial_until) html += '<div class="upgrade-expiry">🕐 Триал до: ' + data.trial_until + '</div>';
-    if (data.pro_until) html += '<div class="upgrade-expiry">💎 PRO до: ' + data.pro_until + '</div>';
-    if (data.pro_plus_until) html += '<div class="upgrade-expiry">👑 PRO+ до: ' + data.pro_plus_until + '</div>';
+    html += '<div class="upgrade-hero-title">' + t('Ваша подписка') + '</div>';
+    if (data.trial_until) html += '<div class="upgrade-expiry">' + t('🕐 Триал до:') + ' ' + data.trial_until + '</div>';
+    if (data.pro_until) html += '<div class="upgrade-expiry">' + t('💎 PRO до:') + ' ' + data.pro_until + '</div>';
+    if (data.pro_plus_until) html += '<div class="upgrade-expiry">' + t('👑 PRO+ до:') + ' ' + data.pro_plus_until + '</div>';
     html += '</div>';
 
     html += '<div class="payment-method-selector">';
-    html += '<button class="payment-method' + (paymentMethod === 'stars' ? ' active' : '') + '" data-method="stars" data-action="switchPayment" data-tier="stars">💎 Stars</button>';
-    html += '<button class="payment-method' + (paymentMethod === 'ton' ? ' active' : '') + '" data-method="ton" data-action="switchPayment" data-tier="ton">💠 TON</button>';
+    html += '<button class="payment-method' + (paymentMethod === 'stars' ? ' active' : '') + '" data-method="stars" data-action="switchPayment" data-tier="stars">' + t('💎 Stars') + '</button>';
+    html += '<button class="payment-method' + (paymentMethod === 'ton' ? ' active' : '') + '" data-method="ton" data-action="switchPayment" data-tier="ton">' + t('💠 TON') + '</button>';
     html += '</div>';
 
     if (paymentMethod === 'ton') {
@@ -1704,7 +1765,7 @@ async function renderUpgradePage() {
       if (walletData.linked) {
         var shortAddr = walletData.wallet_address.substring(0, 8) + '...' + walletData.wallet_address.slice(-6);
         html += '<div class="wallet-chip"><span style="width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block;"></span> ' + shortAddr + '</div>';
-        html += '<button class="upgrade-btn" data-action="unlinkWallet">🔌 Отключить</button>';
+        html += '<button class="upgrade-btn" data-action="unlinkWallet">' + t('🔌 Отключить') + '</button>';
         window._tonWallet = walletData.wallet_address;
       } else {
         html += '<div class="connect-wallet-wrap"><input class="wallet-input" id="ton-wallet-input" placeholder="Вставьте адрес TON кошелька..."><button class="upgrade-btn" data-action="linkWallet">🔌 Подключить</button></div>';
@@ -1757,10 +1818,16 @@ async function renderUpgradePage() {
 
     html += '</div>';
     if (paymentMethod === 'stars') {
-      html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;margin-top:8px;">💡 После оплаты звёздами подписка активируется автоматически</div>';
+      html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;margin-top:8px;">' + t('💡 После оплаты звёздами подписка активируется автоматически') + '</div>';
     } else {
-      html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;margin-top:8px;">💠 Оплата напрямую с TON кошелька. Транзакция проверяется автоматически.</div>';
+      html += '<div class="card" style="font-size:11px;color:var(--hint);text-align:center;margin-top:8px;">' + t('💠 Оплата напрямую с TON кошелька.') + '</div>';
     }
+
+    html += '<div class="card" style="text-align:center;margin-top:12px;padding:10px;font-size:13px;">';
+    html += '<div style="margin-bottom:6px;color:var(--hint);">' + t('Локализация') + '</div>';
+    html += '<button class="upgrade-btn" style="display:inline-block;width:auto;padding:6px 16px;margin:2px;" onclick="setLang(\'ru\')">' + t('Русский') + '</button>';
+    html += '<button class="upgrade-btn" style="display:inline-block;width:auto;padding:6px 16px;margin:2px;" onclick="setLang(\'en\')">' + t('English') + '</button>';
+    html += '</div>';
 
     renderSub(html);
   } catch (e) {
@@ -1888,7 +1955,7 @@ function routePage() {
   destroyChart();
 
   if (!initData) {
-    render('<div class="card" style="text-align:center;padding:40px;"><div style="font-size:40px;margin-bottom:16px;">📊</div><div style="font-weight:600;font-size:18px;">BTC Monitor</div><div style="margin-top:8px;color:var(--hint);">Открой это приложение через Telegram Bot<br>👇<br>📊 BTC Dashboard</div></div>');
+    render('<div class="card" style="text-align:center;padding:40px;"><div style="font-size:40px;margin-bottom:16px;">📊</div><div style="font-weight:600;font-size:18px;">BTC Monitor</div><div style="margin-top:8px;color:var(--hint);">' + t('Открой это приложение через Telegram Bot') + '<br>👇<br>📊 BTC Dashboard</div></div>');
     return;
   }
 

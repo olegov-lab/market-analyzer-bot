@@ -2,12 +2,14 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from bot.state import dp
+from bot.state import dp, get_user_lang
+from bot.i18n import t
 from btcbot.lessons import LESSONS
 
 
 @dp.message(Command(commands=["learn"]))
 async def learn_cmd(message: Message):
+    lang = await get_user_lang(message.from_user.id)
     builder = InlineKeyboardBuilder()
     for lesson in LESSONS:
         builder.button(
@@ -16,13 +18,12 @@ async def learn_cmd(message: Message):
         )
     builder.adjust(2)
     await message.answer(
-        "📖 *BTC Monitor* · Азбука крипты\n\n"
-        "20 уроков для начинающих + 20 для опытных "
-        "+ 20 для профи (ML, аналитика, графики):\n\n"
-        "• Как читать индикаторы\n"
-        "• On-chain метрики\n"
-        "• Анализ объёма\n\n"
-        "Выберите урок:",
+        f"{t('📖 *BTC Monitor* · Азбука крипты', lang)}\n\n"
+        f"{t('20 уроков для начинающих + 20 для опытных + 20 для профи', lang)}\n\n"
+        "• How to read indicators\n"
+        "• On-chain metrics\n"
+        "• Volume analysis\n\n"
+        f"{'Choose a lesson:' if lang == 'en' else 'Выберите урок:'}",
         reply_markup=builder.as_markup(),
         parse_mode="Markdown",
     )
@@ -50,6 +51,9 @@ async def show_lesson(callback: CallbackQuery):
 
 @dp.callback_query(lambda c: c.data == "learn_list")
 async def learn_list(callback: CallbackQuery):
+    from bot.state import get_user_lang
+    from bot.i18n import t
+    lang = await get_user_lang(callback.from_user.id)
     builder = InlineKeyboardBuilder()
     for lesson in LESSONS:
         builder.button(
@@ -58,13 +62,12 @@ async def learn_list(callback: CallbackQuery):
         )
     builder.adjust(2)
     await callback.message.edit_text(
-        "📖 *BTC Monitor* · Азбука крипты\n\n"
-        "20 уроков для начинающих + 20 для опытных "
-        "+ 20 для профи (ML, аналитика, графики):\n\n"
-        "• Как читать индикаторы\n"
-        "• On-chain метрики\n"
-        "• Анализ объёма\n\n"
-        "Выберите урок:",
+        f"{t('📖 *BTC Monitor* · Азбука крипты', lang)}\n\n"
+        f"{t('20 уроков для начинающих + 20 для опытных + 20 для профи', lang)}\n\n"
+        "• How to read indicators\n"
+        "• On-chain metrics\n"
+        "• Volume analysis\n\n"
+        f"{'Choose a lesson:' if lang == 'en' else 'Выберите урок:'}",
         reply_markup=builder.as_markup(),
         parse_mode="Markdown",
     )

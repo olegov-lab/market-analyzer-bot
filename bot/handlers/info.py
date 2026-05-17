@@ -3,7 +3,8 @@ import re as _re
 from aiogram.filters import Command
 from aiogram.types import Message
 
-from bot.state import bot, db, dp, menu_kb, redis_client, _greeting_for, _ts_for
+from bot.state import bot, db, dp, redis_client, _greeting_for, _ts_for, _menu_kb, set_user_lang, get_user_lang
+from bot.i18n import t
 from btcbot.news import fetch_news
 from btcbot.subscription import activate_trial
 from btcbot.game import GameEngine
@@ -15,6 +16,8 @@ game = GameEngine(db)
 async def start(message: Message):
     uid = message.from_user.id
     await db.upsert_user(uid, message.from_user.username)
+    await set_user_lang(uid, message.from_user.language_code or "en")
+    lang = await get_user_lang(uid)
 
     # Process referral deep link: start=ref_123456
     ref_id = None
@@ -27,7 +30,7 @@ async def start(message: Message):
 
     if ref_id and ref_id != uid:
         await game.add_referral(ref_id, uid)
-        await message.answer("🎉 *BTC Monitor*\n\nВы пришли по реферальной ссылке! За вашим пригласившим закреплён бонус.", parse_mode="Markdown")
+        await message.answer(t("🎉 *BTC Monitor*\n\nВы пришли по реферальной ссылке! За вашим пригласившим закреплён бонус.", lang), parse_mode="Markdown")
 
     await activate_trial(db, uid)
     articles = await fetch_news(redis_client)
@@ -46,42 +49,41 @@ async def start(message: Message):
                 news_lines.append(f"{emoji} {clean}")
         news_part = "\n\n📰 *Последние новости:*\n" + "\n".join(news_lines)
     await message.answer(
-        f"{await _greeting_for(uid, message.from_user.first_name)} 🤖\n\n"
-        "Я *BTC Monitor* — твой AI-аналитик Bitcoin."
+        f"{await _greeting_for(uid, message.from_user.first_name, lang)} 🤖\n\n"
+        f"{t('Я *BTC Monitor* — твой AI-аналитик Bitcoin.', lang)}"
         f"{news_part}\n\n"
-        "🎁 *3 дня PRO* — бесплатно! ∞ AI-вопросов, продвинутые алерты.\n\n"
-        "📊 Кнопка `📊 BTC` слева от ввода → Mini App\n\n"
-        "💰 `/btc` — цена и индикаторы\n"
-        "🔮 `/predict` — прогноз\n"
-        "🧠 `/ask` — AI-консультант\n"
-        "🎮 `/portfolio` — портфель и игры\n"
-        "📰 `/news` — пульс рынка\n"
-        "📖 `/learn` — азбука крипты\n"
-        "🔔 `/subscribe` — уведомления\n"
-        "🌍 `/timezone` — часовой пояс\n"
-        "📋 `/alerts` — мои подписки / отписка\n"
-        "👥 `/referral` — привести друга (+5⭐)\n"
-        "☕ `/donate` — поддержать проект\n"
-        "❓ `/help` — всё остальное",
+        f"{t('🎁 *3 дня PRO* — бесплатно! ∞ AI-вопросов, продвинутые алерты.', lang)}\n\n"
+        f"{t('📊 Кнопка `📊 BTC` слева от ввода → Mini App', lang)}\n\n"
+        f"{t('💰 `/btc` — цена и индикаторы', lang)}\n"
+        f"{t('🔮 `/predict` — прогноз', lang)}\n"
+        f"{t('🧠 `/ask` — AI-консультант', lang)}\n"
+        f"{t('🎮 `/portfolio` — портфель и игры', lang)}\n"
+        f"{t('📰 `/news` — пульс рынка', lang)}\n"
+        f"{t('📖 `/learn` — азбука крипты', lang)}\n"
+        f"{t('🔔 `/subscribe` — уведомления', lang)}\n"
+        f"{t('🌍 `/timezone` — часовой пояс', lang)}\n"
+        f"{t('📋 `/alerts` — мои подписки / отписка', lang)}\n"
+        f"{t('👥 `/referral` — привести друга (+5⭐)', lang)}\n"
+        f"{t('☕ `/donate` — поддержать проект', lang)}\n"
+        f"{t('❓ `/help` — всё остальное', lang)}",
         parse_mode="Markdown",
-        reply_markup=menu_kb,
+        reply_markup=_menu_kb(lang),
     )
 
 
 @dp.message(Command(commands=["referral"]))
 async def referral_cmd(message: Message):
     uid = message.from_user.id
+    lang = await get_user_lang(uid)
     info = await game.get_referral_info(uid)
     ref_link = info["ref_link"]
     count = info["referrals"]
     await message.answer(
-        "👥 *BTC Monitor* · Рефералы\n\n"
-        "Приведи друга и получи **+5⭐** (бонус для майнинга), "
-        "а твой друг — **+10% к майнингу** за каждый реферал.\n\n"
-        f"👤 Твои рефералы: **{info['count']}**\n"
-        f"🔗 Твоя ссылка:\n`{ref_link}`\n\n"
-        "Просто отправь другу эту ссылку — он перейдёт в бота, "
-        "и бонус закрепится автоматически.",
+        f"{t('👥 *BTC Monitor* · Рефералы', lang)}\n\n"
+        f"{t('Приведи друга и получи **+5⭐** (бонус для майнинга), а твой друг — **+10% к майнингу** за каждый реферал.', lang)}\n\n"
+        f"{t('👤 Твои рефералы: **{count}**', lang, count=count)}\n"
+        f"{t('🔗 Твоя ссылка:', lang)}\n`{ref_link}`\n\n"
+        f"{t('Просто отправь другу эту ссылку — он перейдёт в бота, и бонус закрепится автоматически.', lang)}",
         parse_mode="Markdown",
-        reply_markup=menu_kb,
+        reply_markup=_menu_kb(lang),
     )

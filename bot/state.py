@@ -9,6 +9,7 @@ from btcbot.analyzer import Analyzer
 from btcbot.config import settings
 from btcbot.db import Database
 from btcbot.fear_greed import FearGreedIndex
+from bot.i18n import t, user_lang_key
 
 bot = Bot(token=settings.telegram_bot_token)
 dp = Dispatcher()
@@ -17,16 +18,30 @@ redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
 analyzer = Analyzer(db, redis_client)
 fear_greed = FearGreedIndex(redis_client)
 
-menu_kb = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="🧠 AI Чат"), KeyboardButton(text="📊 Аналитика")],
-        [KeyboardButton(text="🎮 Трейдинг"), KeyboardButton(text="📰 Новости")],
-        [KeyboardButton(text="❓ Ещё")],
-    ],
-    resize_keyboard=True,
-)
+async def get_user_lang(user_id: int) -> str:
+    lang = await redis_client.get(user_lang_key(user_id))
+    return lang or "ru"
+
+async def set_user_lang(user_id: int, lang: str) -> None:
+    code = "ru" if lang.startswith("ru") else "en"
+    await redis_client.setex(user_lang_key(user_id), 86400 * 365, code)
+
+def _menu_kb(lang: str = "ru") -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=t("🧠 AI Чат", lang)), KeyboardButton(text=t("📊 Аналитика", lang))],
+            [KeyboardButton(text=t("🎮 Трейдинг", lang)), KeyboardButton(text=t("📰 Новости", lang))],
+            [KeyboardButton(text=t("❓ Ещё", lang))],
+        ],
+        resize_keyboard=True,
+    )
+
+menu_kb = _menu_kb()
 
 HELP_KEYBOARD = {"btc": "📊 Аналитика", "ask": "🧠 AI Чат", "portfolio": "🎮 Трейдинг", "news": "📰 Новости", "help": "❓ Ещё"}
+
+def help_kb(lang: str = "ru"):
+    return {k: t(v, lang) for k, v in HELP_KEYBOARD.items()}
 
 
 def _ts() -> str:
@@ -61,9 +76,10 @@ def _clear_tz_cache(user_id: int) -> None:
     _ts_tz_cache.pop(user_id, None)
 
 
-def _greeting(name: str = "") -> str:
+def _greeting(name: str = "", lang: str = "ru") -> str:
     h = datetime.now().hour
     base = "Доброе утро" if 5 <= h < 12 else "Добрый день" if 12 <= h < 18 else "Добрый вечер" if 18 <= h < 23 else "Доброй ночи"
+    base = t(base, lang)
     return f"{base}, {name}!" if name else f"{base}!"
 
 
@@ -75,7 +91,7 @@ def _rsi_bar(rsi: float) -> str:
     return f"{color} {bar} {rsi:.1f}"
 
 
-async def _greeting_for(user_id: int, name: str = "") -> str:
+async def _greeting_for(user_id: int, name: str = "", lang: str = "ru") -> str:
     if user_id not in _ts_tz_cache and len(_ts_tz_cache) >= _MAX_TZ_CACHE:
         _ts_tz_cache.clear()
     tz_name = _ts_tz_cache.get(user_id) or await db.get_user_timezone(user_id)
@@ -86,4 +102,5 @@ async def _greeting_for(user_id: int, name: str = "") -> str:
         tz = zoneinfo.ZoneInfo("Europe/Moscow")
     h = datetime.now(tz).hour
     base = "Доброе утро" if 5 <= h < 12 else "Добрый день" if 12 <= h < 18 else "Добрый вечер" if 18 <= h < 23 else "Доброй ночи"
+    base = t(base, lang)
     return f"{base}, {name}!" if name else f"{base}!"
