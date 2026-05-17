@@ -2,35 +2,32 @@ from aiogram import F
 from aiogram.filters import Command, or_f
 from aiogram.types import Message
 
-from bot.state import dp, redis_client, _tz_for, _ts_from_tz, get_user_lang, _menu_kb
-from bot.i18n import t
+from bot.state import dp, menu_kb, redis_client, _tz_for, _ts_from_tz
 from btcbot.news import build_market_brain_comment, fetch_news
 
 
 @dp.message(or_f(Command(commands=["news"]), F.text == "📰 Новости"))
 async def news_cmd(message: Message):
-    uid = message.from_user.id
-    lang = await get_user_lang(uid)
-    tz = await _tz_for(uid)
+    tz = await _tz_for(message.from_user.id)
     ts = _ts_from_tz(tz)
     articles = await fetch_news(redis_client)
     if not articles:
-        await message.answer(t("Новостей пока нет", lang), reply_markup=_menu_kb(lang))
+        await message.answer("Новостей пока нет", reply_markup=menu_kb)
         return
 
     bull_count = sum(1 for a in articles if a.get("sentiment") == "bullish")
     bear_count = sum(1 for a in articles if a.get("sentiment") == "bearish")
     total = len(articles)
 
-    mood = t("🟢 бычье", lang) if bull_count > bear_count else t("🔴 медвежье", lang) if bear_count > bull_count else t("🟡 нейтральное", lang)
+    mood = "🟢 бычье" if bull_count > bear_count else "🔴 медвежье" if bear_count > bull_count else "🟡 нейтральное"
 
     worry = bear_count / total if total else 0
-    worry_label = t("🔴 высокий", lang) if worry >= 0.6 else t("🟡 средний", lang) if worry >= 0.3 else t("🟢 низкий", lang)
+    worry_label = "🔴 высокий" if worry >= 0.6 else "🟡 средний" if worry >= 0.3 else "🟢 низкий"
 
-    lines = ["📊 *BTC Monitor* · Market Pulse", "", ts, ""]
-    lines.append(t("▸ **Настроение:** {mood}", lang, mood=mood))
-    lines.append(t("▸ **Бычьих:** {bull}  **Медвежьих:** {bear}", lang, bull=bull_count, bear=bear_count))
-    lines.append(t("▸ **Тревога:** {worry}", lang, worry=worry_label))
+    lines = ["📊 *BTC Monitor* · Пульс", "", ts, ""]
+    lines.append(f"▸ **Настроение:** {mood}")
+    lines.append(f"▸ **Бычьих:** {bull_count}  **Медвежьих:** {bear_count}")
+    lines.append(f"▸ **Тревога:** {worry_label}")
     lines.append("")
 
     emoji_map = {"bullish": "🟢", "bearish": "🔴", "neutral": "🟡"}
@@ -42,8 +39,8 @@ async def news_cmd(message: Message):
         lines.append(f"{emoji} [{a['title']}]({a['url']}){src_part}")
 
     lines.append("")
-    lines.append(t("💬 **Аналитик рынка:** {comment}", lang, comment=build_market_brain_comment(bull_count, bear_count, total)))
+    lines.append(f"💬 **Аналитик рынка:** {build_market_brain_comment(bull_count, bear_count, total)}")
     lines.append("")
-    lines.append(t("♻️ Обновление: новости — 5 мин", lang))
+    lines.append("♻️ Обновление: новости — 5 мин")
 
-    await message.answer("\n".join(lines), parse_mode="Markdown", disable_web_page_preview=True, reply_markup=_menu_kb(lang))
+    await message.answer("\n".join(lines), parse_mode="Markdown", disable_web_page_preview=True, reply_markup=menu_kb)

@@ -2,8 +2,7 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from bot.state import db, dp, _clear_tz_cache, get_user_lang
-from bot.i18n import t
+from bot.state import db, dp, _clear_tz_cache
 
 TZ_LIST = [
     ("Europe/Moscow", "🇷🇺 Москва (UTC+3)"),
@@ -26,7 +25,6 @@ TZ_LIST = [
 @dp.message(Command(commands=["timezone"]))
 async def timezone_cmd(message: Message):
     uid = message.from_user.id
-    lang = await get_user_lang(uid)
     current = await db.get_user_timezone(uid)
     builder = InlineKeyboardBuilder()
     for tz_id, label in TZ_LIST:
@@ -34,9 +32,9 @@ async def timezone_cmd(message: Message):
         builder.button(text=label + mark, callback_data=f"tz_{tz_id}")
     builder.adjust(1)
     await message.answer(
-        f"🌍 *BTC Monitor* · {'Timezone' if lang == 'en' else 'Часовой пояс'}\n\n"
-        f"{'Current' if lang == 'en' else 'Сейчас'}: `{current}`\n\n"
-        f"{'Choose your timezone:' if lang == 'en' else 'Выберите ваш часовой пояс:'}",
+        f"🌍 *BTC Monitor* · Часовой пояс\n\n"
+        f"Сейчас: `{current}`\n\n"
+        "Выберите ваш часовой пояс:",
         parse_mode="Markdown",
         reply_markup=builder.as_markup(),
     )
@@ -46,11 +44,10 @@ async def timezone_cmd(message: Message):
 async def timezone_set(callback: CallbackQuery):
     tz = callback.data[3:]
     uid = callback.from_user.id
-    lang = await get_user_lang(uid)
     await db.set_user_timezone(uid, tz)
     _clear_tz_cache(uid)
-    await callback.answer(f"✅ {'Timezone set' if lang == 'en' else 'Часовой пояс установлен'}: {tz}")
+    await callback.answer(f"✅ Часовой пояс установлен: {tz}")
     await callback.message.edit_text(
-        f"🌍 *BTC Monitor* · {'Timezone' if lang == 'en' else 'Часовой пояс'}\n\n✅ {'Set' if lang == 'en' else 'Установлен'}: `{tz}`",
+        f"🌍 *BTC Monitor* · Часовой пояс\n\n✅ Установлен: `{tz}`",
         parse_mode="Markdown",
     )

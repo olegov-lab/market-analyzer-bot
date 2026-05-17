@@ -578,26 +578,24 @@ def _strip_english_reasoning(text: str) -> str:
     return result or text
 
 
-async def _fetch_timothy_analysis(price: Optional[float], indicators, lang: str = "ru") -> str:
+async def _fetch_timothy_analysis(price: Optional[float], indicators) -> str:
     """Call AI for Timothy Peterson-style analysis with current market data.
 
     Tries OpenCode Go with multiple message formats, falls back to OpenRouter.
     """
-    answer_lang = "Russian" if lang == "ru" else "English"
     system_prompt = (
         "You are Timothy Peterson, a renowned Bitcoin analyst and author of the paper "
         "'Metcalfe's Law as a Model for Bitcoin's Value'. You are known for the Lowest Price "
         "Forward (LPF) indicator and modeling BTC price using network effects. "
         "Your analysis style: data-driven, quantitative, skeptical of hype, focused on long-term "
-        "trends, Metcalfe's Law, hash rate, and adoption curves. "
-        f"Answer in {answer_lang}, "
+        "trends, Metcalfe's Law, hash rate, and adoption curves. Answer in Russian, "
         "be concise (300-400 words). Use ONLY the real-time data provided in the prompt. "
         "Do NOT invent prices or dates — reference only what is given. "
-        "Output ONLY the final analysis — no internal reasoning, no English preface, no step-by-step breakdown. Start directly with the text."
+        "Output ONLY the final Russian analysis — no internal reasoning, no English preface, no step-by-step breakdown. Start directly with the text."
     )
     ctx_parts = []
     if price:
-        ctx_parts.append(f"Current BTC price: ${price:,.0f}")
+        ctx_parts.append(f"Текущая цена BTC: ${price:,.0f}")
     if indicators:
         if indicators.rsi is not None:
             ctx_parts.append(f"RSI(14): {indicators.rsi:.1f}")
@@ -609,7 +607,7 @@ async def _fetch_timothy_analysis(price: Optional[float], indicators, lang: str 
         f"REAL-TIME DATA (use these exact numbers, do not fabricate):\n{ctx}\n\n"
         "Include your view on current valuation relative to Metcalfe's Law, "
         "key support/resistance levels based on the MA values above, and near-term outlook. "
-        f"Write in {answer_lang}, 300-400 words."
+        "Write in Russian, 300-400 words."
     )
 
     last_err = None
@@ -892,10 +890,7 @@ async def miniapp_metcalfe(request: Request):
 @limiter.limit("10/minute")
 async def miniapp_news_timothy(request: Request):
     user_id = await _get_user_id(request)
-    lang = request.headers.get("X-Language", "ru")
-    if lang not in ("ru", "en"):
-        lang = "ru"
-    cache_key = f"news:timothy:{lang}"
+    cache_key = "news:timothy"
     if redis_client:
         cached = await redis_client.get(cache_key)
         if cached:
@@ -918,8 +913,9 @@ async def miniapp_news_timothy(request: Request):
         except Exception:
             pass
 
-    text = await _fetch_timothy_analysis(price, indicators, lang)
+    text = await _fetch_timothy_analysis(price, indicators)
     result = {"text": text, "source": "Timothy Peterson via AI"}
+    result["text"] = _strip_english_reasoning(result["text"])
 
     if redis_client:
         await redis_client.setex(cache_key, 3600, json.dumps(result, ensure_ascii=False))

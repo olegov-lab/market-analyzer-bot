@@ -1,1 +1,0 @@
-0 */6 * * * root docker exec market-analyzer-bot-postgres-1 pg_dump -U postgres -d btcbot -F c -f /tmp/btcbot_backup_$(date +\%Y\%m\%d_\%H\%M\%S).dump && mkdir -p /root/pg_backups && cp /tmp/btcbot_backup_*.dump /root/pg_backups/ && find /root/pg_backups/ -type f -mtime +14 -delete

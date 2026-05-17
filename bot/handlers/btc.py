@@ -4,8 +4,7 @@ from aiogram import F
 from aiogram.filters import Command, or_f
 from aiogram.types import Message
 
-from bot.state import analyzer, db, dp, fear_greed, redis_client, _rsi_bar, _tz_for, _ts_from_tz, get_user_lang, _menu_kb
-from bot.i18n import t
+from bot.state import analyzer, db, dp, fear_greed, menu_kb, redis_client, _rsi_bar, _tz_for, _ts_from_tz
 
 
 async def _estimate_hours(db, symbol: str) -> float:
@@ -28,23 +27,17 @@ async def _estimate_ondays(db) -> float:
     return span / 86400
 
 
-_bullish = lambda lang: t("индикаторов за рост", lang)
-_bearish = lambda lang: t("индикаторов за снижение", lang)
-
-
 @dp.message(or_f(Command(commands=["btc"]), F.text == "📊 Аналитика"))
 async def btc(message: Message):
-    uid = message.from_user.id
-    lang = await get_user_lang(uid)
-    thinking = await message.answer(t("🧠 Анализирую рынок... ⏳", lang))
-    tz = await _tz_for(uid)
+    thinking = await message.answer("🧠 Анализирую рынок... ⏳")
+    tz = await _tz_for(message.from_user.id)
     ts = _ts_from_tz(tz)
     indicators = await analyzer.compute_indicators()
     price = await db.get_latest_price("BTCUSD")
 
     if not price:
         await thinking.delete()
-        await message.answer(f"❌ {t('Нет данных о цене', lang)}\n\n{ts}", parse_mode="Markdown", reply_markup=_menu_kb(lang))
+        await message.answer(f"❌ Нет данных о цене\n\n{ts}", parse_mode="Markdown", reply_markup=menu_kb)
         return
 
     pred = await analyzer.predict()
@@ -52,7 +45,7 @@ async def btc(message: Message):
     sig_emoji = "🟢" if pred and pred.direction == "BUY" else "🔴" if pred and pred.direction == "SELL" else "⚪"
     sig_word = "BUY" if pred and pred.direction == "BUY" else "SELL" if pred and pred.direction == "SELL" else "HOLD"
 
-    lines = [f"💰 *BTC Monitor* · Price", "", ts, ""]
+    lines = [f"💰 *BTC Monitor* · Цена", "", ts, ""]
     lines.append(f"── {sig_emoji} 𝙎𝙄𝙂𝙉𝘼𝙇: {sig_word} {sig_emoji} ──")
     lines.append("")
     lines.append(f"▸ **BTC/USD:** ${price:,.0f}")
@@ -61,34 +54,31 @@ async def btc(message: Message):
     if consensus and not consensus.get("low_confidence"):
         cp = consensus["bullish_pct"]
         c_emoji = "🟢" if cp >= 60 else "🔴" if cp <= 40 else "🟡"
-        dir_text = _bullish(lang) if cp >= 50 else _bearish(lang)
-        lines.append(t("▸ **Консенсус:** {emoji} {pct}% {text}", lang, emoji=c_emoji, pct=cp, text=dir_text))
+        lines.append(f"▸ **Консенсус:** {c_emoji} {cp}% индикаторов за рост")
 
     if indicators:
         lines.append("")
-        lines.append(t("── Технические ──", lang))
+        lines.append("── Технические ──")
 
         if indicators.rsi is not None:
-            lines.append(t("▸ **RSI(14):** {bar}", lang, bar=_rsi_bar(indicators.rsi)))
+            lines.append(f"▸ **RSI(14):** {_rsi_bar(indicators.rsi)}")
         else:
             lines.append(f"▸ **RSI(14):** ⏳")
 
         if indicators.bb_lower is not None and indicators.bb_middle is not None and indicators.bb_upper is not None:
             bb_pos = ""
             if price >= indicators.bb_upper * 0.99:
-                bb_pos = t(" ← у верхней", lang)
+                bb_pos = " ← у верхней"
             elif price <= indicators.bb_lower * 1.01:
-                bb_pos = t(" ← у нижней", lang)
-            lines.append(t("▸ **BB(20,2):** {lower} / {mid} / {upper}{pos}", lang,
-                          lower=f"${indicators.bb_lower:,.0f}", mid=f"${indicators.bb_middle:,.0f}",
-                          upper=f"${indicators.bb_upper:,.0f}", pos=bb_pos))
+                bb_pos = " ← у нижней"
+            lines.append(f"▸ **BB(20,2):** ${indicators.bb_lower:,.0f} / ${indicators.bb_middle:,.0f} / ${indicators.bb_upper:,.0f}{bb_pos}")
 
         if indicators.macd is not None:
             macd_dir = ""
             if indicators.macd_signal is not None:
-                macd_dir = t(" · бычье", lang) if indicators.macd > indicators.macd_signal else t(" · медвежье", lang)
-            sig = f"signal {indicators.macd_signal:+.1f}" if indicators.macd_signal is not None else ""
-            hist = f"histogram {indicators.macd_hist:+.1f}" if indicators.macd_hist is not None else ""
+                macd_dir = " · бычье" if indicators.macd > indicators.macd_signal else " · медвежье"
+            sig = f"сигнал {indicators.macd_signal:+.1f}" if indicators.macd_signal is not None else ""
+            hist = f"гистограмма {indicators.macd_hist:+.1f}" if indicators.macd_hist is not None else ""
             parts = [f"MACD {indicators.macd:+.1f}"]
             if sig:
                 parts.append(sig)
@@ -100,20 +90,20 @@ async def btc(message: Message):
         if indicators.ma_50 is not None:
             ma_parts.append(f"**MA50:** ${indicators.ma_50:,.0f}")
         else:
-            ma_parts.append("**MA50:** ⏳ ~50 min")
+            ma_parts.append("**MA50:** ⏳ ~50 мин")
         if indicators.ma_100 is not None:
             ma_parts.append(f"**MA100:** ${indicators.ma_100:,.0f}")
         if indicators.ma_200 is not None:
             ma_parts.append(f"**MA200:** ${indicators.ma_200:,.0f}")
         else:
-            ma_parts.append("**MA200:** ⏳ ~3.5 h")
+            ma_parts.append("**MA200:** ⏳ ~3.5 ч")
         lines.append(f"▸ {' | '.join(ma_parts)}")
 
     if pred and pred.meta:
         p1w = pred.meta.get("prediction_1w")
         if p1w and isinstance(p1w, dict) and p1w.get("mvrv_z") is not None:
             lines.append("")
-            lines.append(t("── On-chain ──", lang))
+            lines.append("── On-chain ──")
             mvrv = p1w.get("mvrv_z")
             mvrv_int = ""
             if mvrv < 0.5:
@@ -124,7 +114,7 @@ async def btc(message: Message):
                 mvrv_int = "переоценён"
             else:
                 mvrv_int = "экстремально переоценён"
-            lines.append(t("▸ **MVRV Z-Score:** {score} — {text}", lang, score=f"{mvrv:.2f}", text=t(mvrv_int, lang)))
+            lines.append(f"▸ **MVRV Z-Score:** {mvrv:.2f} — {mvrv_int}")
             phase_label = {
                 "ACCUMULATION": "накопление",
                 "MARKUP": "рост",
@@ -134,19 +124,18 @@ async def btc(message: Message):
             phase = p1w.get("cycle_phase", "")
             score = p1w.get("cycle_score", 0)
             if phase:
-                phase_word = t(phase_label.get(phase, phase), lang)
-                lines.append(t("▸ **Цикл:** {phase} (score {score})", lang, phase=phase_word, score=f"{score:+.2f}"))
+                lines.append(f"▸ **Цикл:** {phase_label.get(phase, phase)} (score {score:+.2f})")
         else:
             lines.append("")
-            lines.append(t("── On-chain ──", lang))
-            lines.append(t("⏳ данные появятся после настройки Glassnode API", lang))
+            lines.append("── On-chain ──")
+            lines.append("⏳ данные появятся после настройки Glassnode API")
 
     fng = await fear_greed.fetch()
     if fng:
         lines.append("")
-        lines.append(t("── Рынок ──", lang))
+        lines.append("── Рынок ──")
         fg_emoji = "🟢" if fng["value"] >= 50 else "🔴"
-        lines.append(t("▸ **Fear & Greed:** {emoji} {value}/100 — {text}", lang, emoji=fg_emoji, value=fng['value'], text=fng['classification']))
+        lines.append(f"▸ **Fear & Greed:** {fg_emoji} {fng['value']}/100 — {fng['classification']}")
 
     try:
         from btcbot.summarizer import summarize_indicators
@@ -158,8 +147,8 @@ async def btc(message: Message):
         summary = await summarize_indicators(db, redis_client, price, indicators, fng, onchain_sum)
         if summary and any(v for v in summary.values()):
             lines.append("")
-            lines.append(t("── AI Сводка ──", lang))
-            labels = {"trend": t("Тренд", lang), "momentum": t("Моментум", lang), "volatility": t("Волатильность", lang), "onchain": "On-chain", "sentiment": t("Сентимент", lang)}
+            lines.append("── AI Сводка ──")
+            labels = {"trend": "Тренд", "momentum": "Моментум", "volatility": "Волатильность", "onchain": "On-chain", "sentiment": "Сентимент"}
             for key, text in summary.items():
                 if text:
                     lines.append(f"▸ **{labels.get(key, key)}:** {text[:200]}")
@@ -167,23 +156,21 @@ async def btc(message: Message):
         pass
 
     lines.append("")
-    lines.append(t("♻️ Обновление: реальное время", lang))
+    lines.append("♻️ Обновление: реальное время")
     await thinking.delete()
-    await message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=_menu_kb(lang))
+    await message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=menu_kb)
 
 
 @dp.message(Command(commands=["predict"]))
 async def predict(message: Message):
-    uid = message.from_user.id
-    lang = await get_user_lang(uid)
-    tz = await _tz_for(uid)
+    tz = await _tz_for(message.from_user.id)
     ts = _ts_from_tz(tz)
     price = await db.get_latest_price("BTCUSD")
     if not price:
         await message.answer(
-            f"🔮 *BTC Monitor* · Forecast\n\n{t('⏳ данных пока нет, ожидаем 1–2 мин', lang)}\n\n{ts}",
+            f"🔮 *BTC Monitor* · Прогноз\n\n⏳ данных пока нет, ожидаем 1–2 мин\n\n{ts}",
             parse_mode="Markdown",
-            reply_markup=_menu_kb(lang),
+            reply_markup=menu_kb,
         )
         return
 
@@ -191,7 +178,7 @@ async def predict(message: Message):
 
     pred = await analyzer.predict()
 
-    lines = [f"🔮 *BTC Monitor* · Forecast", "", ts, ""]
+    lines = [f"🔮 *BTC Monitor* · Прогноз", "", ts, ""]
 
     if pred:
         meta = pred.meta or {}
@@ -203,33 +190,33 @@ async def predict(message: Message):
 
         conf_pct = round(pred.confidence * 100)
         conf_color = "🟢" if conf_pct >= 70 else "🟡" if conf_pct >= 40 else "🔴"
-        conf_label = t("высокая", lang) if conf_pct >= 70 else t("средняя", lang) if conf_pct >= 40 else t("низкая", lang)
+        conf_label = "высокая" if conf_pct >= 70 else "средняя" if conf_pct >= 40 else "низкая"
 
         lines.append("")
-        lines.append(t("── Сегодня ──", lang))
+        lines.append("── Сегодня ──")
         lines.append(f"{emoji} **{pred.direction}** · ${pred.price_min:,.0f}–${pred.price_max:,.0f}")
-        lines.append(t("▸ **Уверенность:** {conf}", lang, conf=f"{conf_color} {conf_pct}% — {conf_label}"))
+        lines.append(f"▸ **Уверенность:** {conf_color} {conf_pct}% — {conf_label}")
 
         zones = p4h.get("liquidity_zones", [])
         if zones:
             lines.append("")
-            lines.append(t("── Риски ──", lang))
+            lines.append("── Риски ──")
             for z in zones:
                 if z["type"] == "long":
-                    lines.append(f"▸ retrace to ${z['price']:,.0f} before rally")
+                    lines.append(f"▸ откат до ${z['price']:,.0f} перед ростом")
                 else:
-                    lines.append(f"▸ breakout ${z['price']:,.0f} → chain reaction up")
+                    lines.append(f"▸ пробой ${z['price']:,.0f} → цепная реакция вверх")
 
         if p1w and isinstance(p1w, dict) and p1w.get("cycle_phase"):
             lines.append("")
-            lines.append(t("── Неделя ──", lang))
+            lines.append("── Неделя ──")
             phase_label = {
                 "ACCUMULATION": "накопление",
                 "MARKUP": "рост",
                 "DISTRIBUTION": "распределение",
                 "MARKDOWN": "снижение",
             }
-            phase_word = t(phase_label.get(p1w["cycle_phase"], "ожидание"), lang)
+            phase_word = phase_label.get(p1w["cycle_phase"], "ожидание")
             week_parts = [f"{phase_word} (score {p1w.get('cycle_score', 0):+.2f})"]
             mvrv = p1w.get("mvrv_z")
             if mvrv is not None:
@@ -240,61 +227,59 @@ async def predict(message: Message):
             lines.append(f"▸ {', '.join(week_parts)}")
         elif hours >= 0.5:
             lines.append("")
-            lines.append(t("── Неделя ──", lang))
-            lines.append(t("⏳ ждём on-chain данные (~24ч)", lang))
+            lines.append("── Неделя ──")
+            lines.append("⏳ ждём on-chain данные (~24ч)")
 
         if plong and isinstance(plong, dict):
             long_parts = []
             if plong.get("price_vs_200w_ma_text"):
                 txt = plong["price_vs_200w_ma_text"]
-                txt = txt.replace("цена на ", "").replace("бычий тренд", t("бычий", lang)).replace("медвежий тренд", t("медвежий", lang)).replace("бычий", t("бычий", lang)).replace("медвежий", t("медвежий", lang))
+                txt = txt.replace("цена на ", "").replace("бычий тренд", "бычий").replace("медвежий тренд", "медвежий")
                 long_parts.append(txt)
             hd = plong.get("halving_days")
             if hd is not None:
-                long_parts.append(t("халвинг через {d} дн", lang, d=hd))
+                long_parts.append(f"халвинг через {hd} дн")
             if long_parts:
                 lines.append("")
-                lines.append(t("── Долгосрочно ──", lang))
+                lines.append("── Долгосрочно ──")
                 lines.append(f"▸ {', '.join(long_parts)}")
 
         lines.append("")
-        lines.append(t("♻️ Обновление: прогноз — 1ч · on-chain — 6ч", lang))
+        lines.append("♻️ Обновление: прогноз — 1ч · on-chain — 6ч")
     else:
         lines.append("")
-        lines.append(t("── Сегодня ──", lang))
-        lines.append(t("⏳ собираем историю для прогноза (~48ч)", lang))
+        lines.append("── Сегодня ──")
+        lines.append("⏳ собираем историю для прогноза (~48ч)")
         lines.append("")
-        lines.append(t("♻️ пришлю уведомление, когда прогноз будет готов", lang))
+        lines.append("♻️ пришлю уведомление, когда прогноз будет готов")
 
-    await message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=_menu_kb(lang))
+    await message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=menu_kb)
 
 
 @dp.message(Command(commands=["volatility"]))
 async def volatility(message: Message):
-    uid = message.from_user.id
-    lang = await get_user_lang(uid)
-    tz = await _tz_for(uid)
+    tz = await _tz_for(message.from_user.id)
     ts = _ts_from_tz(tz)
     vol = await analyzer.compute_volatility()
     if not vol:
         await message.answer(
-            f"📊 *BTC Monitor* · Volatility\n\n{t('⏳ недостаточно данных', lang)}\n\n{ts}",
+            f"📊 *BTC Monitor* · Волатильность\n\n⏳ недостаточно данных\n\n{ts}",
             parse_mode="Markdown",
-            reply_markup=_menu_kb(lang),
+            reply_markup=menu_kb,
         )
         return
-    labels = {"low": t("🟢 Низкая", lang), "medium": t("🟡 Средняя", lang), "high": t("🟠 Высокая", lang), "extreme": t("🔴 Экстремальная", lang)}
+    labels = {"low": "🟢 Низкая", "medium": "🟡 Средняя", "high": "🟠 Высокая", "extreme": "🔴 Экстремальная"}
     conf_pct = round(vol.current * 100)
     lines = [
-        f"📊 *BTC Monitor* · Volatility",
+        f"📊 *BTC Monitor* · Волатильность",
         "",
         ts,
         "",
-        t("▸ **Уровень:** {level}", lang, level=f"{labels.get(vol.classification, vol.classification)} · {conf_pct}%"),
+        f"▸ **Уровень:** {labels.get(vol.classification, vol.classification)} · {conf_pct}%",
         "",
-        "── Metrics ──",
-        t("▸ **BB ширина:** {pct}% от цены", lang, pct=f"{vol.bb_width_pct:.2f}"),
-        t("▸ **ATR(14):** {pct}% от цены", lang, pct=f"{vol.atr_pct:.2f}"),
-        t("▸ **Перцентиль (30д):** {pct}%", lang, pct=f"{vol.percentile:.0f}"),
+        "── Показатели ──",
+        f"▸ **BB ширина:** {vol.bb_width_pct:.2f}% от цены",
+        f"▸ **ATR(14):** {vol.atr_pct:.2f}% от цены",
+        f"▸ **Перцентиль (30д):** {vol.percentile:.0f}%",
     ]
-    await message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=_menu_kb(lang))
+    await message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=menu_kb)

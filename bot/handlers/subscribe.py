@@ -2,8 +2,7 @@ from aiogram import F
 from aiogram.filters import Command
 from aiogram.types import Message, PreCheckoutQuery, LabeledPrice, ContentType
 
-from bot.state import bot, db, dp, _menu_kb, get_user_lang
-from bot.i18n import t
+from bot.state import bot, db, dp, menu_kb
 from btcbot.subscription import activate_pro, activate_pro_plus, get_user_tier, Tier
 from loguru import logger
 
@@ -11,7 +10,6 @@ from loguru import logger
 @dp.message(F.web_app_data)
 async def web_app_data(message: Message):
     import json
-    lang = await get_user_lang(message.from_user.id)
     logger.info(f"web_app_data received from {message.from_user.id}")
     try:
         raw = message.web_app_data.data if message.web_app_data else ""
@@ -28,17 +26,17 @@ async def web_app_data(message: Message):
 
     user_tier = await get_user_tier(db, message.from_user.id)
     if tier == "pro" and user_tier in (Tier.PRO, Tier.PRO_PLUS):
-        await message.answer(t("💎 У вас уже активна подписка PRO.", lang), reply_markup=_menu_kb(lang))
+        await message.answer("💎 У вас уже активна подписка PRO.", reply_markup=menu_kb)
         return
     if tier == "pro_plus" and user_tier == Tier.PRO_PLUS:
-        await message.answer(t("💎 У вас уже активна подписка PRO+.", lang), reply_markup=_menu_kb(lang))
+        await message.answer("💎 У вас уже активна подписка PRO+.", reply_markup=menu_kb)
         return
 
     if tier == "pro":
         await bot.send_invoice(
             chat_id=message.chat.id,
             title="BTC Monitor PRO",
-            description=t("Безлимитный AI-чат, продвинутые алерты, безлимит сделок", lang),
+            description="Безлимитный AI-чат, продвинутые алерты, безлимит сделок",
             payload="pro_monthly",
             currency="XTR",
             prices=[LabeledPrice(label="PRO на 1 месяц", amount=80)],
@@ -48,36 +46,34 @@ async def web_app_data(message: Message):
         await bot.send_invoice(
             chat_id=message.chat.id,
             title="BTC Monitor PRO+",
-            description=t("Всё из PRO + голос, confidence score ML, персональный дашборд", lang),
+            description="Всё из PRO + голос, confidence score ML, персональный дашборд",
             payload="pro_plus_monthly",
             currency="XTR",
             prices=[LabeledPrice(label="PRO+ на 1 месяц", amount=200)],
             provider_token="",
         )
-    await message.answer(t("💎 Счёт выставлен в чате выше. Оплатите Telegram Stars для активации.", lang), reply_markup=_menu_kb(lang))
+    await message.answer("💎 Счёт выставлен в чате выше. Оплатите Telegram Stars для активации.", reply_markup=menu_kb)
 
 
 @dp.message(Command(commands=["upgrade"]))
 async def upgrade(message: Message):
-    uid = message.from_user.id
-    lang = await get_user_lang(uid)
-    tier = await get_user_tier(db, uid)
+    tier = await get_user_tier(db, message.from_user.id)
     if tier in (Tier.PRO, Tier.PRO_PLUS):
         await message.answer(
-            f"{t('💎 *BTC Monitor* · Подписка', lang)}\n\n{t('У вас уже активна подписка {tier}.', lang, tier=tier.value.upper())}",
+            f"💎 *BTC Monitor* · Подписка\n\nУ вас уже активна подписка {tier.value.upper()}.",
             parse_mode="Markdown",
-            reply_markup=_menu_kb(lang),
+            reply_markup=menu_kb,
         )
         return
     await message.answer(
-        f"{t('💎 *BTC Monitor* · Подписка', lang)}\n\n{t('Выберите тариф:', lang)}",
+        "💎 *BTC Monitor* · Подписка\n\nВыберите тариф:",
         parse_mode="Markdown",
-        reply_markup=_menu_kb(lang),
+        reply_markup=menu_kb,
     )
     await bot.send_invoice(
         chat_id=message.chat.id,
         title="BTC Monitor PRO",
-        description=t("Безлимитный AI-чат, продвинутые алерты, безлимит сделок", lang),
+        description="Безлимитный AI-чат, продвинутые алерты, безлимит сделок",
         payload="pro_monthly",
         currency="XTR",
         prices=[LabeledPrice(label="PRO на 1 месяц", amount=80)],
@@ -87,20 +83,18 @@ async def upgrade(message: Message):
 
 @dp.message(Command(commands=["upgrade_plus"]))
 async def upgrade_plus(message: Message):
-    uid = message.from_user.id
-    lang = await get_user_lang(uid)
-    tier = await get_user_tier(db, uid)
+    tier = await get_user_tier(db, message.from_user.id)
     if tier == Tier.PRO_PLUS:
         await message.answer(
-            f"{t('💎 *BTC Monitor* · Подписка', lang)}\n\n{t('У вас уже активна PRO+.', lang)}",
+            f"💎 *BTC Monitor* · Подписка\n\nУ вас уже активна PRO+.",
             parse_mode="Markdown",
-            reply_markup=_menu_kb(lang),
+            reply_markup=menu_kb,
         )
         return
     await bot.send_invoice(
         chat_id=message.chat.id,
         title="BTC Monitor PRO+",
-        description=t("Всё из PRO + голос, confidence score ML, персональный дашборд", lang),
+        description="Всё из PRO + голос, confidence score ML, персональный дашборд",
         payload="pro_plus_monthly",
         currency="XTR",
         prices=[LabeledPrice(label="PRO+ на 1 месяц", amount=200)],
@@ -110,12 +104,11 @@ async def upgrade_plus(message: Message):
 
 @dp.message(Command(commands=["donate"]))
 async def donate(message: Message):
-    uid = message.from_user.id
-    lang = await get_user_lang(uid)
     await bot.send_invoice(
         chat_id=message.chat.id,
-        title=t("☕ Поддержать BTC Monitor", lang),
-        description=t("Разработка BTC Monitor — это open-source проект. Ваши Stars помогают покрывать сервер и API.", lang),
+        title="☕ Поддержать BTC Monitor",
+        description="Разработка BTC Monitor — это open-source проект. "
+                    "Ваши Stars помогают покрывать сервер и API.",
         payload="donation",
         currency="XTR",
         prices=[LabeledPrice(label="☕ Чашка кофе для разработчика", amount=10)],
@@ -130,29 +123,27 @@ async def pre_checkout(pre_checkout_query: PreCheckoutQuery):
 
 @dp.message(F.successful_payment)
 async def successful_payment(message: Message):
-    uid = message.from_user.id
-    lang = await get_user_lang(uid)
     payload = message.successful_payment.invoice_payload
     if payload == "donation":
         stars = message.successful_payment.total_amount
         await message.answer(
-            f"{t('☕ *BTC Monitor* · Спасибо!', lang)}\n\n"
-            f"{t('Спасибо за поддержку ({stars} ⭐)! Ваши Stars пойдут на развитие проекта. ❤️', lang, stars=stars)}",
+            f"☕ *BTC Monitor* · Спасибо!\n\n"
+            f"Спасибо за поддержку ({stars} ⭐)! Ваши Stars пойдут на развитие проекта. ❤️",
             parse_mode="Markdown",
-            reply_markup=_menu_kb(lang),
+            reply_markup=menu_kb,
         )
         return
     if payload == "pro_monthly":
-        await activate_pro(db, uid, days=30)
+        await activate_pro(db, message.from_user.id, days=30)
         label = "PRO"
     elif payload == "pro_plus_monthly":
-        await activate_pro_plus(db, uid, days=30)
+        await activate_pro_plus(db, message.from_user.id, days=30)
         label = "PRO+"
     else:
-        await message.answer(t("❌ Неизвестный тип подписки.", lang), reply_markup=_menu_kb(lang))
+        await message.answer("❌ Неизвестный тип подписки.", reply_markup=menu_kb)
         return
     await message.answer(
-        f"{t('✅ *BTC Monitor* · Подписка', lang)}\n\n{t('Оплата прошла! {label} активирован на 30 дней.', lang, label=label)}",
+        f"✅ *BTC Monitor* · Подписка\n\nОплата прошла! {label} активирован на 30 дней.",
         parse_mode="Markdown",
-        reply_markup=_menu_kb(lang),
+        reply_markup=menu_kb,
     )
