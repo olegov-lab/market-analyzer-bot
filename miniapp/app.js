@@ -48,7 +48,10 @@ async function setLang(code) {
   localStorage.setItem('btc_lang', code);
   _dict = {};
   await loadI18n();
-  routePage();
+try { routePage(); } catch(e) {
+  var el = document.getElementById('content');
+  if (el) el.innerHTML = '<div class="card" style="padding:20px;color:red;">JS Error: ' + e.message + '<br>' + e.stack + '</div>';
+}
 }
 
 async function unsubscribe(subId, alertType) {
@@ -2012,4 +2015,7 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-routePage();
+try { routePage(); } catch(e) {
+  var el = document.getElementById('content');
+  if (el) el.innerHTML = '<div class="card" style="padding:20px;color:red;">JS Error: ' + e.message + '<br>' + e.stack + '</div>';
+}
