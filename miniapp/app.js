@@ -1852,10 +1852,11 @@ async function verifyAndActivate(paymentId) {
 }
 
 function openTonUri(uri) {
+  var link = uri.replace('ton://transfer/', 'https://app.tonkeeper.com/transfer/');
   try {
-    Telegram.openLink(uri);
+    Telegram.openLink(link);
   } catch(_) {
-    try { Telegram.openTelegramLink(uri.replace('ton://', 'https://t.me/')); } catch(_2) {}
+    try { Telegram.openLink(uri); } catch(_2) {}
   }
 }
 
